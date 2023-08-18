@@ -43,7 +43,8 @@ module Test.Ouroboros.Consensus.ChainGenerator.Counting (
   , windowStart
   , withSuffixWindow
   , withTopWindow
-  , withWindow
+  , someWindow
+  , someWindowBetween
   , withWindowBetween
     -- * vectors
   , MVector (MVector)
@@ -250,7 +251,7 @@ instance Read (SomeWindow lbl outer elem) where
           <*> Some.readArg
           <*> Some.readArg
 
--- | @withWindow outerSz lbl offset innerSz@ is a window of length @innerSz@
+-- | @someWindow outerSz lbl offset innerSz@ is a window of length @innerSz@
 -- with name @lbl@ starting at @offset@ in a sequence with length @outerSz@.
 --
 -- If the window doesn't fit in the containing sequence, it is clipped so the
@@ -260,8 +261,8 @@ instance Read (SomeWindow lbl outer elem) where
 -- or it can spill on the left if @i < 0@, or it can spill on both sides
 -- simultaneously.
 --
-withWindow :: Size outer elem -> Lbl lbl -> Index outer elem -> Size x elem -> SomeWindow lbl outer elem
-withWindow (Count n) _lbl (Count i) (Count m) =
+someWindow :: Size outer elem -> Lbl lbl -> Index outer elem -> Size x elem -> SomeWindow lbl outer elem
+someWindow (Count n) _lbl (Count i) (Count m) =
     SomeWindow Proxy $ UnsafeContains (Count i') (Count m')
   where
     i' = min n (max 0 i)
@@ -272,15 +273,27 @@ withWindow (Count n) _lbl (Count i) (Count m) =
 
     m' = max 0 $ m .- precedingElements .- trailingElements
 
--- | @withWindowBetween outerSz lbl i j@ is the window between indices @i@
+-- | @someWindowBetween outerSz lbl i j@ is the window between indices @i@
 -- and @j@ with name @lbl@ in a containing sequence of length @outerSz@.
-withWindowBetween :: Size outer elem -> Lbl lbl -> Index outer elem -> Index outer elem -> SomeWindow lbl outer elem
-withWindowBetween n lbl (Count i) (Count j) = withWindow n lbl (Count i) (Count $ j .- i .+ 1)
+someWindowBetween :: Size outer elem -> Lbl lbl -> Index outer elem -> Index outer elem -> SomeWindow lbl outer elem
+someWindowBetween n lbl (Count i) (Count j) = someWindow n lbl (Count i) (Count $ j .- i .+ 1)
+
+-- | Continuation version of 'someWindowBetween'.
+withWindowBetween ::
+     Size outer elem
+  -> Lbl lbl
+  -> Index outer elem
+  -> Index outer elem
+  -> (forall skolem. Contains elem outer (Win lbl skolem) -> r)
+  -> r
+withWindowBetween n lbl i j use =
+  case someWindowBetween n lbl i j of
+    SomeWindow _ c -> use c
 
 -- | @withSuffixWindow outerSz lbl i@ is the window between indices @i@ and the
 -- end of the containing sequence of length @outerSz@ with name @lbl@.
 withSuffixWindow :: Size outer elem -> Lbl lbl -> Index outer elem -> SomeWindow lbl outer elem
-withSuffixWindow n lbl i = withWindow n lbl i (Count $ getCount n .- getCount i)
+withSuffixWindow n lbl i = someWindow n lbl i (Count $ getCount n .- getCount i)
 
 -- | @withTopWindow lbl sz k@ passes to @k@ a window of size @sz@ with name
 -- @lbl@ at offset @0@ of some containing sequence with a unique name @base@.

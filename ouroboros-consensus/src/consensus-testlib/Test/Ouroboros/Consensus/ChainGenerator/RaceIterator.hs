@@ -81,7 +81,7 @@ init (Kcp k) v =
         BV.JustFound kPlus1st ->
             Just
          $! UnsafeRace
-         $  C.withWindowBetween
+         $  C.someWindowBetween
                 (C.lengthV v)
                 (C.Lbl @RaceLbl)
                 (C.Count 0)
@@ -96,7 +96,7 @@ init (Kcp k) v =
 initConservative :: Scg -> Delta -> C.Contains SlotE outer inner -> Race inner
 initConservative (Scg s) (Delta d) win =
     UnsafeRace
-  $ C.withWindow
+  $ C.someWindow
         (C.windowSize win)
         (C.Lbl @RaceLbl)
         (C.Count 0)
@@ -117,17 +117,14 @@ next v (UnsafeRace (C.SomeWindow Proxy raceWin)) = do
     -- find the first active slot /after/ the given race window
     --
     -- Race windows end in an active slot.
-    nextK <- do
-        C.SomeWindow Proxy searchWin <-
-            pure
-          $ C.withWindowBetween
-                sz
-                (C.Lbl @RaceStepLbl)
-                (C.windowLast raceWin)
-                (C.lastIndex sz)
-        nthActiveSlotIndex (C.Count 1) v searchWin
+    nextK <- C.withWindowBetween
+          sz
+          (C.Lbl @RaceStepLbl)
+          (C.windowLast raceWin)
+          (C.lastIndex sz)
+          (nthActiveSlotIndex (C.Count 1) v)
 
-    pure $! UnsafeRace $ C.withWindowBetween
+    pure $! UnsafeRace $ C.someWindowBetween
         sz
         (C.Lbl @RaceLbl)
         (next0 C.+ 1)
@@ -154,7 +151,7 @@ nextConservative (Scg s) (Delta d) v (UnsafeRace (C.SomeWindow Proxy raceWin)) =
     -- do not return a Race Window that starts after 'Len'
     when (next0 == C.lastIndex sz) Nothing
 
-    pure $! UnsafeRace $ C.withWindowBetween
+    pure $! UnsafeRace $ C.someWindowBetween
         sz
         (C.Lbl @RaceLbl)
         (next0 C.+ 1)

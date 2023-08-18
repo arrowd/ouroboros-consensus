@@ -141,7 +141,7 @@ checkAdversarialChain recipe adv = do
                     Exn.throwError $ BadAnchor HonestActiveMustAnchorAdversarial
 
                 C.SomeWindow Proxy precedingSlots <-
-                    pure $ C.withWindowBetween (C.windowSize winH) (C.Lbl @"foo") (C.Count 0) i
+                    pure $ C.someWindowBetween (C.windowSize winH) (C.Lbl @"foo") (C.Count 0) i
                 let pc = BV.countActivesInV S.notInverted (C.sliceV precedingSlots vH)
 
                 -- arPrefix must correctly count the active slots in the part of
@@ -441,7 +441,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
 
         C.SomeWindow (Proxy :: Proxy skolem) win <-
             pure
-          $ C.withWindowBetween
+          $ C.someWindowBetween
                 (C.windowSize carWin)
                 (C.Lbl @RaceAssumptionLbl)
                 (C.windowStart rwin)
@@ -459,7 +459,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
         do  untouchZeroCount <- do
                 C.SomeWindow Proxy untouch <-   -- untouchable slots
                     pure
-                  $ C.withWindowBetween
+                  $ C.someWindowBetween
                         (C.windowSize carWin)
                         (C.Lbl @UntouchableLbl)
                         (C.windowStart rwin)
@@ -468,7 +468,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
 
             C.SomeWindow (Proxy :: Proxy skolem2) touch <-   -- touchable slots
                 pure
-              $ C.withWindowBetween
+              $ C.someWindowBetween
                     (C.windowSize carWin)
                     (C.Lbl @TouchableLbl)
                     scope
@@ -507,7 +507,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
                         -- now contain the first adversarial active slot
                         C.SomeWindow Proxy settledSlots <-
                             pure
-                          $ C.withWindowBetween
+                          $ C.someWindowBetween
                                 (C.windowSize carWin)
                                 (C.Lbl @SettledLbl)
                                 (C.windowStart rwin)

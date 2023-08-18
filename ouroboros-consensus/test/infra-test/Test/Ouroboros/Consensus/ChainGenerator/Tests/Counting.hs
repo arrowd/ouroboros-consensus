@@ -12,14 +12,14 @@ import qualified Test.Tasty.QuickCheck as TT
 
 tests :: [TT.TestTree]
 tests = [
-    TT.testProperty "prop_withWindow" prop_withWindow
+    TT.testProperty "prop_someWindow" prop_someWindow
   ]
 
 -----
 
-prop_withWindow :: QC.NonNegative Int -> Int -> Int -> QC.Property
-prop_withWindow (QC.NonNegative n) i m =
-    case C.withWindow (C.Count n) (C.Lbl :: C.Lbl "test") (C.Count i) (C.Count m) of
+prop_someWindow :: QC.NonNegative Int -> Int -> Int -> QC.Property
+prop_someWindow (QC.NonNegative n) i m =
+    case C.someWindow (C.Count n) (C.Lbl :: C.Lbl "test") (C.Count i) (C.Count m) of
         C.SomeWindow Proxy (C.Contains (C.Count i') (C.Count m')) ->
             QC.counterexample (show (i', m'))
           $ QC.conjoin [

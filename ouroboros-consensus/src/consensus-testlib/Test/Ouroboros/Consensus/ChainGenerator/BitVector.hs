@@ -114,13 +114,11 @@ countActivesInMV ::
   => proxy pol
   -> C.MVector base SlotE s S
   -> ST s (C.Var base (PreImage pol ActiveSlotE))
-countActivesInMV pol mv =
+countActivesInMV pol (C.MVector mv) =
     MV.foldl'
         (\acc w -> if S.test pol w then acc + 1 else acc)
         0
-        mv'
-  where
-    C.MVector mv' = mv
+        mv
 
 -----
 

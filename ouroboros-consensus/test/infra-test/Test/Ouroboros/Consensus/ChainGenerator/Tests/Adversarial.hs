@@ -199,7 +199,7 @@ data AdvStabLbl
 -- | Calculate the interval in which the adversary can not yet have accelerated
 calculateStability :: Scg -> H.ChainSchema base adv -> C.SomeWindow AdvStabLbl adv SlotE
 calculateStability (Scg s) schedA =
-    C.withWindow (C.windowSize winA) (C.Lbl @AdvStabLbl) (C.Count 0) (C.Count $ firstActive + theBlockItself + s)
+    C.someWindow (C.windowSize winA) (C.Lbl @AdvStabLbl) (C.Count 0) (C.Count $ firstActive + theBlockItself + s)
   where
     H.ChainSchema winA vA = schedA
 

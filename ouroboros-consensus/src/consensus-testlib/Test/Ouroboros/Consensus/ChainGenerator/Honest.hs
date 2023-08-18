@@ -330,8 +330,8 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
 
         -- TODO clear the window first?
 
-        -- NB @withWindow@ truncates if it would reach past @slots@
-        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @ScgLbl) (C.Count 0) (C.toSize denominator)
+        -- NB @someWindow@ truncates if it would reach past @slots@
+        C.SomeWindow Proxy scg <- pure $ C.someWindow sz (C.Lbl @ScgLbl) (C.Count 0) (C.toSize denominator)
         tot <- C.fromWindowVar scg <$> BV.fillInWindow S.notInverted density' g (C.sliceMV scg mv)
 
         firstSlot <- BV.testMV S.notInverted mv (C.Count 0)
@@ -342,7 +342,7 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
         -- but we do not add the one here because the previous init step above
         -- already handled the first window
         let numRemainingFullWindows = sz C.- C.getCount denominator
-        pure $ C.withWindow sz (C.Lbl @RemainingHcgWindowsLbl) (C.Count 1) numRemainingFullWindows
+        pure $ C.someWindow sz (C.Lbl @RemainingHcgWindowsLbl) (C.Count 1) numRemainingFullWindows
 
     -- visit all subsequent windows that do not reach beyond @slots@
     --
@@ -376,7 +376,7 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
     --       sampled from @mbAsc@.
     C.forRange_ (C.windowSize remainingFullWindows) $ \(C.fromWindow remainingFullWindows -> islot) -> do
         -- NB will not be truncated
-        C.SomeWindow Proxy scgSlots <- pure $ C.withWindow sz (C.Lbl @ScgLbl) islot (C.toSize denominator)
+        C.SomeWindow Proxy scgSlots <- pure $ C.someWindow sz (C.Lbl @ScgLbl) islot (C.toSize denominator)
 
         tot <- do
             tot <- readSTRef rtot
@@ -630,7 +630,7 @@ checkHonestChain recipe sched = do
 
     -- every slot is the first slot of a unique stability window
     C.forRange_ sz $ \i -> do
-        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @ScgLbl) i (C.Count s)
+        C.SomeWindow Proxy scg <- pure $ C.someWindow sz (C.Lbl @ScgLbl) i (C.Count s)
 
         let pc = BV.countActivesInV S.notInverted (C.sliceV scg v)
 
