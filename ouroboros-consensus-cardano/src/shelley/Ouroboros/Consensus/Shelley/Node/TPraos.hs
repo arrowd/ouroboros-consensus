@@ -297,6 +297,7 @@ protocolInfoTPraosShelleyBased ProtocolParamsShelleyBased {
           protVer
           genesis
           (shelleyBlockIssuerVKey <$> credentialss)
+          mempty -- TODO propagate?
 
     storageConfig :: StorageConfig (ShelleyBlock (TPraos c) era)
     storageConfig = ShelleyStorageConfig {

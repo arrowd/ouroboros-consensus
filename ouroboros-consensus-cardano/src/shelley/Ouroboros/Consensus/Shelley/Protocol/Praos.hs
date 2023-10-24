@@ -21,6 +21,7 @@ import qualified Cardano.Protocol.TPraos.OCert as SL
 import           Control.Monad (unless)
 import           Control.Monad.Except (throwError)
 import           Data.Either (isRight)
+import qualified Data.Map.Strict as Map
 import           GHC.Generics (Generic)
 import           NoThunks.Class (NoThunks)
 import           Numeric.Natural (Natural)
@@ -35,9 +36,9 @@ import           Ouroboros.Consensus.Shelley.Protocol.Abstract (ProtoCrypto,
                      ProtocolHeaderSupportsEnvelope (..),
                      ProtocolHeaderSupportsKES (..),
                      ProtocolHeaderSupportsLedger (..),
-                     ProtocolHeaderSupportsProtocol (..),
-                     ShelleyHash (ShelleyHash), ShelleyProtocol,
-                     ShelleyProtocolHeader)
+                     ProtocolHeaderSupportsProtocol (..), ShelleyHash (..),
+                     ShelleyProtocol, ShelleyProtocolHeader)
+import           Ouroboros.Consensus.Util (whenJust)
 
 
 type instance ProtoCrypto (Praos c) = c
@@ -48,6 +49,7 @@ data PraosEnvelopeError
   = ObsoleteNode Version Version
   | HeaderSizeTooLarge Natural Natural
   | BlockSizeTooLarge Natural Natural
+  | InvalidCheckpoint -- TODO args
   deriving (Eq, Generic, Show)
 
 instance NoThunks PraosEnvelopeError
@@ -63,7 +65,7 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
 
   type EnvelopeCheckError _ = PraosEnvelopeError
 
-  envelopeChecks cfg lv hdr = do
+  envelopeChecks cfg checkpoints lv hdr = do
     unless (m <= maxpv) $ throwError (ObsoleteNode m maxpv)
     unless (fromIntegral (bhviewHSize bhv) <= maxHeaderSize) $
       throwError $
@@ -71,6 +73,9 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
     unless (bhviewBSize bhv <= maxBodySize) $
       throwError $
         BlockSizeTooLarge (bhviewBSize bhv) maxBodySize
+    whenJust (Map.lookup (pHeaderBlock hdr) checkpoints) $ \checkpoint ->
+      unless (checkpoint == pHeaderHash hdr) $
+        throwError InvalidCheckpoint
     where
       pp = praosParams cfg
       (MaxMajorProtVer maxpv) = praosMaxMajorPV pp
