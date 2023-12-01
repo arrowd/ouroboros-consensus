@@ -103,6 +103,8 @@ basicChainSyncClient tracer cfg chainDbView varCandidate =
       , CSClient.controlMessageSTM   = return Continue
       , CSClient.headerMetricsTracer = nullTracer
       , CSClient.varCandidate
+      , CSClient.startIdling         = pure ()
+      , CSClient.stopIdling          = pure ()
       }
   where
     dummyHeaderInFutureCheck ::
