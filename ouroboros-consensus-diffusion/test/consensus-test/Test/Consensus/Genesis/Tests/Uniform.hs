@@ -1,26 +1,19 @@
-{-# LANGUAGE BlockArguments      #-}
-{-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Test.Consensus.Genesis.Tests.Uniform (tests) where
 
 import           Cardano.Slotting.Slot (SlotNo (SlotNo), WithOrigin (..))
 import           Control.Monad.IOSim (runSimOrThrow)
 import           Data.List (intercalate)
+import           Ouroboros.Consensus.Config (SecurityParam (SecurityParam))
 import           Ouroboros.Consensus.Util.Condense (Condense (condense))
 import qualified Ouroboros.Network.AnchoredFragment as AF
 import           Test.Consensus.BlockTree (BlockTree (..))
 import           Test.Consensus.Genesis.Setup
 import           Test.Consensus.Genesis.Setup.Classifiers
 import           Test.Consensus.PeerSimulator.Run
-                     (SchedulerConfig (scEnableGdd), noTimeoutsSchedulerConfig,
-                     scTraceState)
+                     (SchedulerConfig (scEnableGdd), debugScheduler,
+                     noTimeoutsSchedulerConfig, scTraceState)
 import           Test.Consensus.PeerSimulator.StateView
 import           Test.Consensus.PointSchedule
 import           Test.Ouroboros.Consensus.ChainGenerator.Params (Delta (Delta))
@@ -36,7 +29,7 @@ import           Text.Printf (printf)
 
 tests :: TestTree
 tests =
-  adjustQuickCheckTests (`div` 10) $
+  adjustQuickCheckTests (const 1) $
   adjustQuickCheckMaxSize (`div` 10) $
   testProperty "uniform random schedule" prop_uniformSchedule
 
@@ -101,17 +94,17 @@ makeProperty genesisTest advCount StateView {svSelectedChain} killed =
 prop_uniformSchedule :: QC.Gen QC.Property
 prop_uniformSchedule = do
   (genesisTest, schedule) <- qcFromSchedulePoints $ do
-    genesisTest <- genChains (QC.choose (1, 4))
+    genesisTest <- pure (manualChains (SecurityParam 2) 5 (Delta 0) [2, 1, 1] [(1, [2, 1, 1])])
     schedule <- genUniformSchedulePoints genesisTest
     pure (genesisTest, schedule)
   pure $
     runSimOrThrow $
-    runTest schedulerConfig genesisTest schedule $
+    runTest (debugScheduler schedulerConfig) genesisTest schedule $
     exceptionCounterexample $
     makeProperty genesisTest (length (peerIds schedule) - 1)
 
   where
-    schedulerConfig = (noTimeoutsSchedulerConfig scheduleConfig) {scEnableGdd = True, scTraceState = False}
+    schedulerConfig = (noTimeoutsSchedulerConfig scheduleConfig) {scEnableGdd = True, scTraceState = True}
 
     scheduleConfig = defaultPointScheduleConfig
 

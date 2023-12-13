@@ -8,20 +8,25 @@
 module Test.Consensus.Genesis.Setup.GenChains (
     GenesisTest (..)
   , genChains
+  , manualChains
+  , mkBlockTree
   ) where
 
 import           Control.Monad (replicateM)
 import qualified Control.Monad.Except as Exn
+import           Data.Functor ((<&>))
 import           Data.List (foldl')
+import           Data.List.NonEmpty (NonEmpty (..), toList)
 import           Data.Proxy (Proxy (Proxy))
 import qualified Data.Vector.Unboxed as Vector
-import           Data.Word (Word8)
+import           Data.Word (Word64, Word8)
 import           Ouroboros.Consensus.Block.Abstract hiding (Header)
 import           Ouroboros.Consensus.Protocol.Abstract
                      (SecurityParam (SecurityParam))
 import           Ouroboros.Network.AnchoredFragment (AnchoredFragment)
 import qualified Ouroboros.Network.AnchoredFragment as AF
 import qualified Test.Consensus.BlockTree as BT
+import           Test.Consensus.BlockTree (addBranch', mkTrunk)
 import           Test.Consensus.PointSchedule
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Adversarial as A
 import           Test.Ouroboros.Consensus.ChainGenerator.Adversarial
@@ -143,3 +148,41 @@ genChains genNumForks = do
 
     incSlot :: SlotNo -> TestBlock -> TestBlock
     incSlot n b = b { tbSlot = tbSlot b + n }
+
+extendPrefix :: [TestBlock] -> Word64 -> [SlotNo] -> [TestBlock]
+extendPrefix prefix forkNo (h : t) =
+  toList blocks
+  where
+    blocks = foldl' step (block0 :| prefix) t
+    step (prev :| rest) next = (successorBlock prev) {tbSlot = tbSlot prev + next} :| prev : rest
+    block0 = case prefix of
+      []    -> (firstBlock forkNo) {tbSlot = h}
+      b : _ -> (modifyFork (const forkNo) (successorBlock b)) {tbSlot = tbSlot b + h}
+extendPrefix _ _ [] = error "empty frag"
+
+mkBlockTree :: [SlotNo] -> [(Word64, [SlotNo])] -> BT.BlockTree TestBlock
+mkBlockTree trunk branches =
+  foldr addBranch' (mkTrunk (mkFrag trunkBlocks)) (mkFrag <$> branchBlocks)
+  where
+    mkFrag = AF.fromNewestFirst AF.AnchorGenesis
+    branchBlocks =
+      zip [1 ..] branches <&> \ (forkNo, (forkBlockNo, blocks)) ->
+        extendPrefix (prefix forkBlockNo) forkNo blocks
+    prefix tillBlock = dropWhile (\ b -> blockNo b > BlockNo tillBlock) trunkBlocks
+    trunkBlocks = extendPrefix [] 0 trunk
+
+manualChains ::
+  SecurityParam ->
+  GenesisWindow ->
+  Delta ->
+  [SlotNo] ->
+  [(Word64, [SlotNo])] ->
+  GenesisTest
+manualChains gtSecurityParam gtGenesisWindow gtDelay trunk branches =
+  GenesisTest {
+    gtHonestAsc = ascFromDouble (realToFrac (length trunk) / realToFrac (unSlotNo (sum trunk))),
+    gtSecurityParam,
+    gtGenesisWindow,
+    gtDelay,
+    gtBlockTree = mkBlockTree trunk branches
+  }
