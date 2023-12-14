@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Ouroboros.Consensus.MiniProtocol.ChainSync.GenesisDensityGovernor (
@@ -11,18 +12,18 @@ import           Control.Monad (guard)
 import           Control.Tracer (Tracer, traceWith)
 import           Data.Containers.ListUtils (nubOrd)
 import           Data.Foldable
-import           Data.List (intercalate)
 import qualified Data.List as L
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Void
-import           Data.Word (Word64)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
                      (ChainSyncClientHandle (..))
+import           Ouroboros.Consensus.MiniProtocol.ChainSync.GenesisDensityGovernor.Trace
+                     (CheckpointEvent (..), TraceEvent (..))
 import           Ouroboros.Consensus.Storage.ChainDB.API (ChainDB)
 import qualified Ouroboros.Consensus.Storage.ChainDB.API as ChainDB
 import           Ouroboros.Consensus.Util.IOLike
@@ -57,11 +58,10 @@ run ::
      ( IOLike m
      , Ord peer
      , LedgerSupportsProtocol blk
-     , Show peer
      )
   => ChainDbView m blk
   -> TopLevelConfig blk
-  -> Tracer m String
+  -> Tracer m (TraceEvent blk peer)
   -> STM m (Map peer (StrictTVar m (AnchoredFragment (Header blk))))
   -> STM m (Map peer (ChainSyncClientHandle m blk))
   -> m Void
@@ -159,7 +159,7 @@ run chainDB cfg tracer getCandidates getHandles = go Map.empty
 
               killPeers =
                   for_ losingPeers $ \peer -> do
-                    trace ("Killing peer: " ++ show peer)
+                    trace $ KillingPeer peer
                     cschKill (handles Map.! peer)
 
               losingPeers = nubOrd $ do
@@ -175,10 +175,13 @@ run chainDB cfg tracer getCandidates getHandles = go Map.empty
                 pure peer0
 
           pure (killPeers, newCandidateTips, loeFrag, losingPeers, densityBounds)
-        trace ("Density bounds: " ++ showPeers (showBounds <$> densityBounds))
-        trace ("New candidate tips: " ++ showPeers (showTip <$> newCandidateTips))
-        trace ("Losing peers: " ++ show losingPeers)
-        trace ("Setting loeFrag: " ++ show (AF.headAnchor loeFrag))
+
+        trace $ Checkpoint $ CheckpointEvent {
+          densityBounds,
+          newCandidateTips,
+          losingPeers,
+          loeFrag
+          }
 
         killPeers
 
@@ -192,16 +195,7 @@ run chainDB cfg tracer getCandidates getHandles = go Map.empty
       | a <= b    = b - a
       | otherwise = 0
 
-    trace msg = traceWith tracer ("GenesisDensityGovernor | " ++ msg)
-
-    showBounds :: (AnchoredFragment (Header blk), Bool, Word64, Word64) -> String
-    showBounds (_, more, lower, upper) = show lower ++ "/" ++ show upper ++ "[" ++ (if more then "+" else " ") ++ "]"
-
-    showTip :: Point (Header blk) -> String
-    showTip = show
-
-    showPeers :: Map peer String -> String
-    showPeers = intercalate ", " . fmap (\ (peer, v) -> show peer ++ " -> " ++ v) . Map.toList
+    trace = traceWith tracer
 
 {-
 

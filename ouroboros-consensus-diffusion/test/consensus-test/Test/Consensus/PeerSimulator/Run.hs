@@ -297,7 +297,7 @@ runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree, 
       GenesisDensityGovernor.run
         (GenesisDensityGovernor.defaultChainDbView chainDb)
         config
-        tracer
+        (mkGenesisDensityGovernorTracer tracer)
         (readTVar (psrCandidates resources))
         (readTVar (psrHandles resources))
 

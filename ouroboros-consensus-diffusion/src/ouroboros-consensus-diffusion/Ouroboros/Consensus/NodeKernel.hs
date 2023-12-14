@@ -154,7 +154,6 @@ initNodeKernel
        , Ord addrNTN
        , Hashable addrNTN
        , Typeable addrNTN
-       , Show addrNTN
        )
     => NodeKernelArgs m addrNTN addrNTC blk
     -> m (NodeKernel m addrNTN addrNTC blk)

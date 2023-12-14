@@ -7,23 +7,33 @@
 module Test.Consensus.PeerSimulator.Trace (
     mkCdbTracer
   , mkChainSyncClientTracer
+  , mkGenesisDensityGovernorTracer
   , prettyTime
   , traceLinesWith
   , traceUnitWith
   ) where
 
 import           Control.Tracer (Tracer (Tracer), traceWith)
+import           Data.List (intercalate)
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import           Data.Time.Clock (diffTimeToPicoseconds)
+import           Data.Word (Word64)
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
                      (TraceChainSyncClientEvent (..))
+import           Ouroboros.Consensus.MiniProtocol.ChainSync.GenesisDensityGovernor.Trace as GDG
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl as ChainDB.Impl
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
                      (SelectionChangedInfo (..), TraceAddBlockEvent (..))
+import           Ouroboros.Consensus.Util.Condense (condense)
 import           Ouroboros.Consensus.Util.IOLike (IOLike, MonadMonotonicTime,
                      Time (Time), getMonotonicTime)
+import           Ouroboros.Network.AnchoredFragment (AnchoredFragment,
+                     castPoint)
+import           Test.Consensus.PointSchedule (PeerId)
 import           Test.Util.TersePrinting (terseHFragment, tersePoint,
                      terseRealPoint)
-import           Test.Util.TestBlock (TestBlock)
+import           Test.Util.TestBlock (Header, TestBlock)
 import           Text.Printf (printf)
 
 mkCdbTracer ::
@@ -62,6 +72,27 @@ mkChainSyncClientTracer tracer =
     _ -> pure ()
   where
     trace = traceUnitWith tracer "ChainSyncClient"
+
+mkGenesisDensityGovernorTracer ::
+  Monad m =>
+  Tracer m String ->
+  Tracer m (GDG.TraceEvent TestBlock PeerId)
+mkGenesisDensityGovernorTracer tracer =
+  Tracer $ \case
+    KillingPeer peer -> trace $ "Killed peer: " ++ condense peer
+    Checkpoint (CheckpointEvent{densityBounds, newCandidateTips, losingPeers, loeFrag}) -> do
+      trace $ "Density bounds: " ++ showPeers (showBounds <$> densityBounds)
+      trace $ "New candidate tips: " ++ showPeers (tersePoint . castPoint <$> newCandidateTips)
+      trace $ "Losing peers: " ++ show losingPeers
+      trace $ "LoE fragment: " ++ terseHFragment loeFrag
+  where
+    trace = traceUnitWith tracer "GenesisDensityGovernor"
+
+    showBounds :: (AnchoredFragment (Header blk), Bool, Word64, Word64) -> String
+    showBounds (_, more, lower, upper) = show lower ++ "/" ++ show upper ++ "[" ++ (if more then "+" else " ") ++ "]"
+
+    showPeers :: Map PeerId String -> String
+    showPeers = intercalate ", " . fmap (\(peer, v) -> condense peer ++ " -> " ++ v) . Map.toList
 
 prettyTime :: MonadMonotonicTime m => m String
 prettyTime = do
