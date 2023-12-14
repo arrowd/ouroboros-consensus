@@ -192,7 +192,7 @@ run chainDB cfg tracer getCandidates getHandles = go Map.empty
       | a <= b    = b - a
       | otherwise = 0
 
-    trace msg = traceWith tracer ("          GDG | " ++ msg)
+    trace msg = traceWith tracer ("GenesisDensityGovernor | " ++ msg)
 
     showBounds :: (AnchoredFragment (Header blk), Bool, Word64, Word64) -> String
     showBounds (_, more, lower, upper) = show lower ++ "/" ++ show upper ++ "[" ++ (if more then "+" else " ") ++ "]"
