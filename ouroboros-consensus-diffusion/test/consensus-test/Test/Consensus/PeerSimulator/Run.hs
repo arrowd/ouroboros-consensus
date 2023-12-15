@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -272,7 +271,7 @@ runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree} 
     stateTracer <- mkStateTracer
     startBlockFetchLogic registry chainDb fetchClientRegistry getCandidates
     runScheduler tracer stateTracer pointSchedule (psrPeers resources)
-    snapshotStateView stateViewTracers chainDb
+    snapshotStateView stateViewTracers pointSchedule chainDb
   where
     config = defaultCfg k
 

@@ -15,7 +15,7 @@ import           Ouroboros.Consensus.Util.Condense (Condense (condense))
 import           Ouroboros.Consensus.Util.IOLike (IOLike, SomeException,
                      atomically)
 import           Test.Consensus.PeerSimulator.Trace (terseFragH)
-import           Test.Consensus.PointSchedule (PeerId, TestFragH)
+import           Test.Consensus.PointSchedule (PeerId, PointSchedule, TestFragH)
 import           Test.Util.TestBlock (TestBlock)
 import           Test.Util.Tracer (recordingTracerTVar)
 
@@ -33,6 +33,7 @@ data ChainSyncException = ChainSyncException
 -- information about the mocked peers (for instance the exceptions raised in the
 -- mocked ChainSync server threads).
 data StateView = StateView {
+    svPointSchedule       :: PointSchedule,
     svSelectedChain       :: TestFragH,
     svChainSyncExceptions :: [ChainSyncException]
   }
@@ -65,9 +66,10 @@ defaultStateViewTracers = do
 snapshotStateView ::
   IOLike m =>
   StateViewTracers m ->
+  PointSchedule ->
   ChainDB m TestBlock ->
   m StateView
-snapshotStateView StateViewTracers{svtGetChainSyncExceptions} chainDb = do
+snapshotStateView StateViewTracers{svtGetChainSyncExceptions} svPointSchedule chainDb = do
   svChainSyncExceptions <- svtGetChainSyncExceptions
   svSelectedChain <- atomically $ ChainDB.getCurrentChain chainDb
-  pure StateView {svSelectedChain, svChainSyncExceptions}
+  pure StateView {svPointSchedule, svSelectedChain, svChainSyncExceptions}
