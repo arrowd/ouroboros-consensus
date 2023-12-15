@@ -118,7 +118,7 @@ prop_serveAdversarialBranches = do
   genesisTest <- genChains (QC.choose (1, 4))
   schedule <- fromSchedulePoints <$> genUniformSchedulePoints genesisTest
   pure $
-    runGenesisTest schedulerConfig genesisTest schedule $
+    runGenesisTest' schedulerConfig genesisTest schedule $
     exceptionCounterexample $
     makeProperty genesisTest (length (peerIds schedule) - 1)
 
@@ -161,7 +161,7 @@ prop_leashingAttackStalling = QC.expectFailure <$> do
   genesisTest <- genChains (QC.choose (1, 4))
   schedule <- fromSchedulePoints <$> genLeashingSchedule genesisTest
   pure $
-    runGenesisTest schedulerConfig genesisTest schedule $
+    runGenesisTest' schedulerConfig genesisTest schedule $
     exceptionCounterexample $
     makeProperty genesisTest (length (peerIds schedule) - 1)
 
@@ -209,7 +209,7 @@ prop_leashingAttackTimeLimited = QC.expectFailure <$> do
   genesisTest <- genChains (QC.choose (1, 4))
   schedule <- fromSchedulePoints <$> genTimeLimitedSchedule genesisTest
   pure $
-    runGenesisTest schedulerConfig genesisTest schedule $
+    runGenesisTest' schedulerConfig genesisTest schedule $
     exceptionCounterexample $
     makeProperty genesisTest (length (peerIds schedule) - 1)
 
