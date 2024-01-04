@@ -12,11 +12,13 @@ module Test.Consensus.PeerSimulator.Run (
   ) where
 
 import           Cardano.Slotting.Time (SlotLength, slotLengthFromSec)
+import           Control.Monad (foldM)
 import           Control.Monad.Class.MonadTime (MonadTime)
 import           Control.Monad.Class.MonadTimer.SI (MonadTimer)
 import           Control.Tracer (Tracer, nullTracer, traceWith)
 import           Data.Foldable (for_)
 import           Data.Functor (void)
+import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Ouroboros.Consensus.Config (TopLevelConfig (..))
@@ -209,18 +211,33 @@ dispatchTick tracer stateTracer peers Tick {active = Peer pid state, duration, n
 -- conditions given by the tick.
 -- This usually means for the ChainSync server to have sent the target header to the
 -- client.
+--
+-- Takes a snapshot of the state (via its last argument) and returns the list of
+-- all those snapshots, from the latest to the oldest, that is, with the very
+-- last snapshot as the head of the list.
 runScheduler ::
   IOLike m =>
   Tracer m String ->
   Tracer m () ->
   PointSchedule ->
   Map PeerId (PeerResources m) ->
-  m ()
-runScheduler tracer stateTracer ps@PointSchedule{ticks} peers = do
+  (PointSchedule -> m StateView) ->
+  m [StateView]
+runScheduler tracer stateTracer ps@PointSchedule{ticks, peerIds} peers snapshotStateViewWith = do
   traceLinesWith tracer (prettyPointSchedule ps)
   traceStartOfTime
-  for_ ticks (dispatchTick tracer stateTracer peers)
+  (_, stateViews) <-
+    foldM
+      (\(pastTicks, pastStateViews) tick -> do
+        dispatchTick tracer stateTracer peers tick
+        let pointSchedule = PointSchedule{ticks = NonEmpty.reverse (tick NonEmpty.:| pastTicks), peerIds}
+        stateView <- snapshotStateViewWith pointSchedule
+        pure (tick : pastTicks, stateView : pastStateViews)
+      )
+      ([], [])
+      ticks
   traceEndOfTime
+  pure stateViews
   where
     traceStartOfTime =
       traceLinesWith tracer [
@@ -244,7 +261,7 @@ runPointSchedule ::
   GenesisTest ->
   PointSchedule ->
   Tracer m String ->
-  m StateView
+  m [StateView]
 runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree} pointSchedule tracer0 =
   withRegistry $ \registry -> do
     stateViewTracers <- defaultStateViewTracers
@@ -270,8 +287,9 @@ runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree} 
           = pure nullTracer
     stateTracer <- mkStateTracer
     startBlockFetchLogic registry chainDb fetchClientRegistry getCandidates
-    runScheduler tracer stateTracer pointSchedule (psrPeers resources)
-    snapshotStateView stateViewTracers pointSchedule chainDb
+
+    let snapshotStateViewWith ps = snapshotStateView stateViewTracers ps chainDb
+    runScheduler tracer stateTracer pointSchedule (psrPeers resources) snapshotStateViewWith
   where
     config = defaultCfg k
 

@@ -56,7 +56,9 @@ runTest schedulerConfig genesisTest schedule makeProperty = do
       "    mustReply = " ++ show (mustReplyTimeout scChainSyncTimeouts)
       ] ++ prettyGenesisTest genesisTest
 
-    finalStateView <- runPointSchedule schedulerConfig genesisTest schedule tracer
+    stateViews <- runPointSchedule schedulerConfig genesisTest schedule tracer
+    let finalStateView = head stateViews
+
     traceWith tracer (condense finalStateView)
     trace <- unlines <$> getTrace
 
