@@ -57,12 +57,19 @@ runTest schedulerConfig genesisTest schedule makeProperty = do
       ] ++ prettyGenesisTest genesisTest
 
     stateViews <- runPointSchedule schedulerConfig genesisTest schedule tracer
-    let finalStateView = head stateViews
 
-    traceWith tracer (condense finalStateView)
+    traceLinesWith tracer ["State view at the very end:", condense (head stateViews)]
     trace <- unlines <$> getTrace
 
-    pure $ counterexample trace $ makeProperty finalStateView
+    pure $
+      conjoin $
+      map
+        (\stateView ->
+           counterexample trace $
+           counterexample "State view at failure point:" $
+           counterexample (condense stateView) $
+           makeProperty stateView)
+        (reverse stateViews)
   where
     SchedulerConfig {scChainSyncTimeouts} = schedulerConfig
     GenesisTest {gtBlockTree} = genesisTest
