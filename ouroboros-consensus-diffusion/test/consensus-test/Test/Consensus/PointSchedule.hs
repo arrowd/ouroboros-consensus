@@ -47,6 +47,7 @@ module Test.Consensus.PointSchedule (
   , defaultPointScheduleConfig
   , fromSchedulePoints
   , genesisAdvertisedPoints
+  , lastBlockPoints
   , longRangeAttack
   , mkPeers
   , peersOnlyHonest
@@ -58,7 +59,7 @@ module Test.Consensus.PointSchedule (
   ) where
 
 import           Control.Monad.ST (ST)
-import           Data.Foldable (toList)
+import           Data.Foldable (foldl', toList)
 import           Data.Hashable (Hashable)
 import           Data.List (mapAccumL, partition, scanl', transpose)
 import           Data.List.NonEmpty (NonEmpty ((:|)))
@@ -550,3 +551,13 @@ stToGen ::
 stToGen gen = do
   seed :: QCGen <- arbitrary
   pure (runSTGen_ seed gen)
+
+-- | Return the last block points served by all the peers that actually appear
+-- in the point schedule.
+lastBlockPoints :: PointSchedule -> Map PeerId (WithOrigin TestBlock)
+lastBlockPoints = foldl' go Map.empty . toList . ticks
+  where
+    go blockPoints Tick{active=Peer peerId state}
+      | NodeOnline (AdvertisedPoints{block = BlockPoint blockPoint}) <- state
+        = Map.insert peerId blockPoint blockPoints
+      | otherwise = blockPoints
