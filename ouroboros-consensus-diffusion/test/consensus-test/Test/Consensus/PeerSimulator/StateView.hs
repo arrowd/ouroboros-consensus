@@ -9,13 +9,15 @@ module Test.Consensus.PeerSimulator.StateView (
   ) where
 
 import           Control.Tracer (Tracer)
+import qualified Data.List.NonEmpty as NonEmpty
 import           Ouroboros.Consensus.Storage.ChainDB (ChainDB)
 import qualified Ouroboros.Consensus.Storage.ChainDB as ChainDB
 import           Ouroboros.Consensus.Util.Condense (Condense (condense))
 import           Ouroboros.Consensus.Util.IOLike (IOLike, SomeException,
                      atomically)
 import           Test.Consensus.PeerSimulator.Trace (terseFragH)
-import           Test.Consensus.PointSchedule (PeerId, PointSchedule, TestFragH)
+import           Test.Consensus.PointSchedule (PeerId,
+                     PointSchedule (PointSchedule), TestFragH, ticks)
 import           Test.Util.TestBlock (TestBlock)
 import           Test.Util.Tracer (recordingTracerTVar)
 
@@ -40,8 +42,14 @@ data StateView = StateView {
   deriving Show
 
 instance Condense StateView where
-  condense StateView {svSelectedChain, svChainSyncExceptions} =
-    "SelectedChain: " ++ terseFragH svSelectedChain ++ "\nChainSyncExceptions: " ++ show svChainSyncExceptions
+  condense StateView {svSelectedChain, svChainSyncExceptions, svPointSchedule=PointSchedule{ticks}} =
+    "SelectedChain: " ++ terseFragH svSelectedChain ++ "\n"
+    ++ "ChainSyncExceptions: " ++ show svChainSyncExceptions ++ "\n"
+    ++ "PointSchedule:\n"
+    ++ (if length ticks == 1
+          then ""
+          else "  ..." ++ show (length ticks - 1) ++ " more ticks...\n")
+    ++ "  " ++ condense (NonEmpty.last ticks)
 
 -- | State view tracers are a lightweight mechanism to record information that
 -- can later be used to produce a state view. This mechanism relies on
