@@ -112,6 +112,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
     -- * Main API
     LedgerDB (..)
   , LedgerDB'
+  , LedgerDbSerialiseConstraints
   , currentPoint
     -- * Exceptions
   , LedgerDbError (..)
@@ -128,7 +129,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , forkerCurrentPoint
   , getForker
   , getTipStatistics
-  , readLedgerStateAtTipFor
   , readLedgerTablesAtFor
   , withPrivateTipForker
   , withTipForker
@@ -141,14 +141,17 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , SnapCounters (..)
   , SnapshotFailure (..)
     -- * Validation
-  , AnnLedgerError (..)
   , ValidateResult (..)
+    -- ** Annotated ledger errors
+  , AnnLedgerError (..)
+  , AnnLedgerError'
     -- * Tracing
   , TraceLedgerDBEvent (..)
     -- ** Replay events
   , ReplayGoal (..)
   , ReplayStart (..)
-  , TraceReplayEvent (..)
+  , TraceReplayProgressEvent (..)
+  , TraceReplayStartEvent (..)
   , decorateReplayTracerWithGoal
   , decorateReplayTracerWithStart
     -- ** Snapshot events
@@ -160,7 +163,8 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , TraceValidateEvent (..)
   ) where
 
-import           Control.Monad (forM)
+import           Codec.Serialise (Serialise)
+import Control.Monad (forM)
 import           Control.Monad.Class.MonadTime.SI
 import           Control.Tracer
 import           Data.Functor.Contravariant
@@ -171,18 +175,34 @@ import           GHC.Generics
 import           NoThunks.Class
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.HeaderStateHistory
+import           Ouroboros.Consensus.HeaderValidation
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.Inspect
+import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
+import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Util.CallStack
-import           Ouroboros.Consensus.Util.CBOR
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry
 
 {-------------------------------------------------------------------------------
   Main API
 -------------------------------------------------------------------------------}
+
+-- | Serialization constraints required by the 'LedgerDB' to be properly
+-- instantiated with a @blk@.
+type LedgerDbSerialiseConstraints blk =
+  ( Serialise      (HeaderHash  blk)
+  , EncodeDisk blk (LedgerState blk EmptyMK)
+  , DecodeDisk blk (LedgerState blk EmptyMK)
+  , EncodeDisk blk (AnnTip      blk)
+  , DecodeDisk blk (AnnTip      blk)
+  , EncodeDisk blk (ChainDepState (BlockProtocol blk))
+  , DecodeDisk blk (ChainDepState (BlockProtocol blk))
+  , CanSerializeLedgerTables (LedgerState blk)
+  )
 
 -- | The core API of the LedgerDB component
 type LedgerDB :: (Type -> Type) -> LedgerStateKind -> Type -> Type
@@ -316,7 +336,7 @@ defaultQueryBatchSize requestedQueryBatchSize = case requestedQueryBatchSize of
   Forker
 -------------------------------------------------------------------------------}
 
--- | An independent handle to a point the LedgerDB, which can be advanced to
+-- | An independent handle to a point in the LedgerDB, which can be advanced to
 -- evaluate forks in the chain.
 type Forker :: (Type -> Type) -> LedgerStateKind -> Type -> Type
 data Forker m l blk = Forker {
@@ -361,9 +381,6 @@ data Forker m l blk = Forker {
 type instance HeaderHash (Forker m l blk) = HeaderHash l
 
 type Forker' m blk = Forker m (ExtLedgerState blk) blk
-
--- TODO(jdral_ldb): get rid of this instance
-instance Show (Forker m l blk) where show _ = "Forker"
 
 instance (GetTip l, HeaderHash l ~ HeaderHash blk, MonadSTM m)
       => GetTipSTM m (Forker m l blk) where
@@ -459,16 +476,6 @@ getTipStatistics ::
   -> m (Maybe Statistics)
 getTipStatistics ldb = withPrivateTipForker ldb forkerReadStatistics
 
-readLedgerStateAtTipFor ::
-     (IOLike m, HasLedgerTables l)
-  => LedgerDB m l blk
-  -> LedgerTables l KeysMK
-  -> m (l ValuesMK)
-readLedgerStateAtTipFor ldb ks = withPrivateTipForker ldb $ \forker -> do
-    state <- atomically $ forkerGetLedgerState forker
-    tables <- forkerReadTables forker ks
-    pure $ state `withLedgerTables` tables
-
 {-------------------------------------------------------------------------------
   Read-only forkers
 -------------------------------------------------------------------------------}
@@ -516,42 +523,6 @@ data SnapCounters = SnapCounters {
   , ntBlocksSinceLastSnap :: !Word64
   }
 
-data DiskSnapshot = DiskSnapshot {
-      -- | Snapshots are numbered. We will try the snapshots with the highest
-      -- number first.
-      --
-      -- When creating a snapshot, we use the slot number of the ledger state it
-      -- corresponds to as the snapshot number. This gives an indication of how
-      -- recent the snapshot is.
-      --
-      -- Note that the snapshot names are only indicative, we don't rely on the
-      -- snapshot number matching the slot number of the corresponding ledger
-      -- state. We only use the snapshots numbers to determine the order in
-      -- which we try them.
-      dsNumber :: Word64
-
-      -- | Snapshots can optionally have a suffix, separated by the snapshot
-      -- number with an underscore, e.g., @4492799_last_Byron@. This suffix acts
-      -- as metadata for the operator of the node. Snapshots with a suffix will
-      -- /not be trimmed/.
-    , dsSuffix :: Maybe String
-    }
-  deriving (Show, Eq, Ord, Generic)
-
-data SnapshotFailure blk =
-    -- | We failed to deserialise the snapshot
-    --
-    -- This can happen due to data corruption in the ledger DB.
-    InitFailureRead ReadIncrementalErr
-
-    -- | This snapshot is too recent (ahead of the tip of the chain)
-  | InitFailureTooRecent (RealPoint blk)
-
-    -- | This snapshot was of the ledger state at genesis, even though we never
-    -- take snapshots at genesis, so this is unexpected.
-  | InitFailureGenesis
-  deriving (Show, Eq, Generic)
-
 {-------------------------------------------------------------------------------
   Validation
 -------------------------------------------------------------------------------}
@@ -563,6 +534,10 @@ data ValidateResult m l blk =
     ValidateSuccessful       (Forker m l blk)
   | ValidateLedgerError      (AnnLedgerError m l blk)
   | ValidateExceededRollBack ExceededRollback
+
+{-------------------------------------------------------------------------------
+  An annotated ledger error
+-------------------------------------------------------------------------------}
 
 -- | Annotated ledger errors
 data AnnLedgerError m l blk = AnnLedgerError {
@@ -576,12 +551,16 @@ data AnnLedgerError m l blk = AnnLedgerError {
     , annLedgerErr    :: LedgerErr l
     }
 
+type AnnLedgerError' m blk = AnnLedgerError m (ExtLedgerState blk) blk
+
 {-------------------------------------------------------------------------------
   Tracing
 -------------------------------------------------------------------------------}
 
 data TraceLedgerDBEvent blk =
-    LedgerDBSnapshotEvent (TraceSnapshotEvent blk)
+      LedgerDBSnapshotEvent !(TraceSnapshotEvent blk)
+    | LedgerReplayStartEvent !(TraceReplayStartEvent blk)
+    | LedgerReplayProgressEvent !(TraceReplayProgressEvent blk)
   deriving (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------
@@ -594,8 +573,8 @@ data TraceLedgerDBEvent blk =
 -- the node could (if it so desired) easily compute a "percentage complete".
 decorateReplayTracerWithGoal
   :: Point blk -- ^ Tip of the ImmutableDB
-  -> Tracer m (TraceReplayEvent blk)
-  -> Tracer m (ReplayGoal blk -> TraceReplayEvent blk)
+  -> Tracer m (TraceReplayProgressEvent blk)
+  -> Tracer m (ReplayGoal blk -> TraceReplayProgressEvent blk)
 decorateReplayTracerWithGoal immTip = (($ ReplayGoal immTip) >$<)
 
 -- | Add the block at which a replay started.
@@ -603,8 +582,8 @@ decorateReplayTracerWithGoal immTip = (($ ReplayGoal immTip) >$<)
 -- This allows to compute a "percentage complete" when tracing the events.
 decorateReplayTracerWithStart
   :: Point blk -- ^ Starting point of the replay
-  -> Tracer m (ReplayGoal blk -> TraceReplayEvent blk)
-  -> Tracer m (ReplayStart blk -> ReplayGoal blk -> TraceReplayEvent blk)
+  -> Tracer m (ReplayGoal blk -> TraceReplayProgressEvent blk)
+  -> Tracer m (ReplayStart blk -> ReplayGoal blk -> TraceReplayProgressEvent blk)
 decorateReplayTracerWithStart start = (($ ReplayStart start) >$<)
 
 -- | Which point the replay started from
@@ -617,38 +596,25 @@ newtype ReplayGoal blk = ReplayGoal (Point blk) deriving (Eq, Show)
 -- date w.r.t. the tip of the ImmutableDB during initialisation. As this
 -- process takes a while, we trace events to inform higher layers of our
 -- progress.
-data TraceReplayEvent blk
+data TraceReplayStartEvent blk
   = -- | There were no LedgerDB snapshots on disk, so we're replaying all blocks
     -- starting from Genesis against the initial ledger.
     ReplayFromGenesis
-        (ReplayGoal blk)  -- ^ the block at the tip of the ImmutableDB
     -- | There was a LedgerDB snapshot on disk corresponding to the given tip.
     -- We're replaying more recent blocks against it.
   | ReplayFromSnapshot
         DiskSnapshot
-        (RealPoint blk)
         (ReplayStart blk) -- ^ the block at which this replay started
-        (ReplayGoal blk)  -- ^ the block at the tip of the ImmutableDB
-  -- | We replayed the given block (reference) on the genesis snapshot during
-  -- the initialisation of the LedgerDB. Used during ImmutableDB replay.
-  | ReplayedBlock
-        (RealPoint blk)   -- ^ the block being replayed
-        [LedgerEvent blk]
-        (ReplayStart blk) -- ^ the block at which this replay started
-        (ReplayGoal blk)  -- ^ the block at the tip of the ImmutableDB
   deriving (Generic, Eq, Show)
 
-{-------------------------------------------------------------------------------
-  Tracing snapshot events
--------------------------------------------------------------------------------}
-
-data TraceSnapshotEvent blk
-  = InvalidSnapshot DiskSnapshot (SnapshotFailure blk)
-    -- ^ An on disk snapshot was skipped because it was invalid.
-  | TookSnapshot DiskSnapshot (RealPoint blk)
-    -- ^ A snapshot was written to disk.
-  | DeletedSnapshot DiskSnapshot
-    -- ^ An old or invalid on-disk snapshot was deleted
+-- | We replayed the given block (reference) on the genesis snapshot during
+-- the initialisation of the LedgerDB. Used during ImmutableDB replay.
+data TraceReplayProgressEvent blk =
+  ReplayedBlock
+    (RealPoint blk)   -- ^ the block being replayed
+    [LedgerEvent blk]
+    (ReplayStart blk) -- ^ the block at which this replay started
+    (ReplayGoal blk)  -- ^ the block at the tip of the ImmutableDB
   deriving (Generic, Eq, Show)
 
 {-------------------------------------------------------------------------------

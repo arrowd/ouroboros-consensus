@@ -88,7 +88,7 @@ import           Ouroboros.Consensus.Storage.ImmutableDB (ImmutableDB,
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import           Ouroboros.Consensus.Storage.LedgerDB (Forker', LedgerDB,
                      LedgerDbSerialiseConstraints, TraceLedgerDBEvent,
-                     TraceReplayEvent, TraceValidateEvent)
+                     TraceReplayStartEvent, TraceReplayProgressEvent, TraceValidateEvent)
 import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Storage.VolatileDB (VolatileDB,
                      VolatileDbSerialiseConstraints)
@@ -118,7 +118,7 @@ getEnv :: forall m blk r. (IOLike m, HasCallStack, HasHeader blk)
        => ChainDbHandle m blk
        -> (ChainDbEnv m blk -> m r)
        -> m r
-getEnv (CDBHandle varState) f = atomically (readTVar varState) >>= \case
+getEnv (CDBHandle varState) f = readTVarIO varState >>= \case
     ChainDbOpen env -> f env
     ChainDbClosed   -> throwIO $ ClosedDBError @blk prettyCallStack
 
@@ -127,7 +127,7 @@ getEnv1 :: (IOLike m, HasCallStack, HasHeader blk)
         => ChainDbHandle m blk
         -> (ChainDbEnv m blk -> a -> m r)
         -> a -> m r
-getEnv1 h f a = getEnv h (\env -> f env a)
+getEnv1 h f a = getEnv h (`f` a)
 
 -- | Variant 'of 'getEnv' for functions taking two arguments.
 getEnv2 :: (IOLike m, HasCallStack, HasHeader blk)
@@ -504,17 +504,18 @@ closeBlocksToAdd (BlocksToAdd queue) = do
 
 -- | Trace type for the various events of the ChainDB.
 data TraceEvent blk
-  = TraceAddBlockEvent          (TraceAddBlockEvent           blk)
-  | TraceFollowerEvent          (TraceFollowerEvent           blk)
-  | TraceCopyToImmutableDBEvent (TraceCopyToImmutableDBEvent  blk)
-  | TraceGCEvent                (TraceGCEvent                 blk)
-  | TraceInitChainSelEvent      (TraceInitChainSelEvent       blk)
-  | TraceOpenEvent              (TraceOpenEvent               blk)
-  | TraceIteratorEvent          (TraceIteratorEvent           blk)
-  | TraceLedgerDBEvent          (TraceLedgerDBEvent           blk)
-  | TraceLedgerReplayEvent      (TraceReplayEvent             blk)
-  | TraceImmutableDBEvent       (ImmutableDB.TraceEvent       blk)
-  | TraceVolatileDBEvent        (VolatileDB.TraceEvent        blk)
+  = TraceAddBlockEvent            (TraceAddBlockEvent          blk)
+  | TraceFollowerEvent            (TraceFollowerEvent          blk)
+  | TraceCopyToImmutableDBEvent   (TraceCopyToImmutableDBEvent blk)
+  | TraceGCEvent                  (TraceGCEvent                blk)
+  | TraceInitChainSelEvent        (TraceInitChainSelEvent      blk)
+  | TraceOpenEvent                (TraceOpenEvent              blk)
+  | TraceIteratorEvent            (TraceIteratorEvent          blk)
+  | TraceLedgerDBEvent            (TraceLedgerDBEvent          blk)
+  | TraceLedgerReplayStartEvent   (TraceReplayStartEvent       blk)
+  | TraceLedgerProgressStartEvent (TraceReplayProgressEvent    blk)
+  | TraceImmutableDBEvent         (ImmutableDB.TraceEvent      blk)
+  | TraceVolatileDBEvent          (VolatileDB.TraceEvent       blk)
   deriving (Generic)
 
 

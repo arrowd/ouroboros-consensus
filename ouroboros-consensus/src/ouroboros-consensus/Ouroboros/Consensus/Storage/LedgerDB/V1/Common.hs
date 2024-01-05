@@ -1,3 +1,6 @@
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveAnyClass             #-}
@@ -5,13 +8,12 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V1.Common (
@@ -33,17 +35,18 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Common (
   , getForkerEnvSTM
     -- * LedgerDB lock
   , LedgerDBLock
+  , ReadLocked
+  , WriteLocked
   , mkLedgerDBLock
+  , readLocked
+  , unsafeIgnoreWriteLock
   , withReadLock
   , withWriteLock
-    -- * Constraints
-  , LedgerDbSerialiseConstraints
+  , writeLocked
     -- * Exposed internals for testing purposes
-  , Internals (..)
-  , Internals'
+  , TestInternals (..)
   ) where
 
-import           Codec.Serialise.Class
 import           Control.Arrow
 import           Control.Tracer
 import           Data.Kind
@@ -51,22 +54,17 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
 import           Data.Word
-import           GHC.Generics
+import           GHC.Generics (Generic)
 import           NoThunks.Class
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
-import           Ouroboros.Consensus.HeaderValidation
 import           Ouroboros.Consensus.Ledger.Abstract
-import           Ouroboros.Consensus.Ledger.Extended (ExtLedgerState)
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
-import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Storage.LedgerDB.API as API
-import           Ouroboros.Consensus.Storage.LedgerDB.API.DiskPolicy
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate
+import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.Init
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
-import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog hiding
-                     (ResolveBlock)
-import           Ouroboros.Consensus.Storage.Serialisation
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
 import qualified Ouroboros.Consensus.Util.MonadSTM.RAWLock as Lock
@@ -165,7 +163,7 @@ getEnv1 ::
   => LedgerDBHandle m l blk
   -> (LedgerDBEnv m l blk -> a -> m r)
   -> a -> m r
-getEnv1 h f a = getEnv h (\env -> f env a)
+getEnv1 h f a = getEnv h (`f` a)
 
 -- | Variant 'of 'getEnv' for functions taking two arguments.
 getEnv2 ::
@@ -299,44 +297,39 @@ newtype LedgerDBLock m = LedgerDBLock (Lock.RAWLock m ())
 mkLedgerDBLock :: IOLike m => m (LedgerDBLock m)
 mkLedgerDBLock = LedgerDBLock <$> Lock.new ()
 
+-- | An action in @m@ that has to hold the read lock. See @withReadLock@.
+newtype ReadLocked m a = ReadLocked { runReadLocked :: m a }
+  deriving newtype (Functor, Applicative, Monad)
+
+-- | Enforce that the action has to be run while holding the read lock.
+readLocked :: m a -> ReadLocked m a
+readLocked = ReadLocked
+
 -- | Acquire the ledger DB read lock and hold it while performing an action
-withReadLock :: IOLike m => LedgerDBLock m -> m a -> m a
+withReadLock :: IOLike m => LedgerDBLock m -> ReadLocked m a -> m a
 withReadLock (LedgerDBLock lock) m =
-    Lock.withReadAccess lock (\() -> m)
+    Lock.withReadAccess lock (\() -> runReadLocked m)
+
+-- | An action in @m@ that has to hold the write lock. See @withWriteLock@.
+newtype WriteLocked m a = WriteLocked { runWriteLocked :: m a }
+  deriving newtype (Functor, Applicative, Monad)
+
+unsafeIgnoreWriteLock :: WriteLocked m a -> m a
+unsafeIgnoreWriteLock = runWriteLocked
+
+-- | Enforce that the action has to be run while holding the write lock.
+writeLocked :: m a -> WriteLocked m a
+writeLocked = WriteLocked
 
 -- | Acquire the ledger DB write lock and hold it while performing an action
-withWriteLock :: IOLike m => LedgerDBLock m -> m a -> m a
+withWriteLock :: IOLike m => LedgerDBLock m -> WriteLocked m a -> m a
 withWriteLock (LedgerDBLock lock) m =
-    Lock.withWriteAccess lock (\() -> (,) () <$> m)
-
-{-------------------------------------------------------------------------------
-  Constraints
--------------------------------------------------------------------------------}
-
--- | Serialization constraints required by the 'LedgerDB' to be properly
--- instantiated with a @blk@.
-type LedgerDbSerialiseConstraints blk =
-  ( Serialise      (HeaderHash  blk)
-  , EncodeDisk blk (LedgerState blk EmptyMK)
-  , DecodeDisk blk (LedgerState blk EmptyMK)
-  , EncodeDisk blk (AnnTip      blk)
-  , DecodeDisk blk (AnnTip      blk)
-  , EncodeDisk blk (ChainDepState (BlockProtocol blk))
-  , DecodeDisk blk (ChainDepState (BlockProtocol blk))
-  , CanSerializeLedgerTables (LedgerState blk)
-  )
+    Lock.withWriteAccess lock (\() -> (,) () <$> runWriteLocked m)
 
 {-------------------------------------------------------------------------------
   Exposed internals for testing purposes
 -------------------------------------------------------------------------------}
 
-type Internals' m blk = Internals m (ExtLedgerState blk) blk
-
 -- TODO: fill in as required
-type Internals :: (Type -> Type) -> LedgerStateKind -> Type -> Type
-data Internals m l blk = Internals {
-    intTakeSnapshot         :: (l ~ ExtLedgerState blk) => DiskSnapshot -> m ()
-    -- | Reapplies a block to the tip of the LedgerDB, and adds the result as
-    -- the new tip of the LedgerDB.
-  , intReapplyThenPushBlock :: (l ~ ExtLedgerState blk) => blk -> m ()
-  }
+type TestInternals :: (Type -> Type) -> LedgerStateKind -> Type -> Type
+data TestInternals m l blk = TestInternals

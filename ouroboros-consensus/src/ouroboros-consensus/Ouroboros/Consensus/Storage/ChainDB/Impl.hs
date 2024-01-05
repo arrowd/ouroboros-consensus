@@ -11,7 +11,6 @@ module Ouroboros.Consensus.Storage.ChainDB.Impl (
   , openDB
   , withDB
     -- * Trace types
-  , LedgerDB.TraceReplayEvent
   , NewTipInfo (..)
   , TraceAddBlockEvent (..)
   , TraceCopyToImmutableDBEvent (..)
@@ -135,15 +134,11 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
     volatileDB <- VolatileDB.openDB argsVolatileDb $ innerOpenCont VolatileDB.closeDB
     (chainDB, testing, env) <- lift $ do
       traceWith tracer $ TraceOpenEvent OpenedVolatileDB
-      let lgrReplayTracer =
-            LedgerDB.decorateReplayTracerWithGoal
-              immutableDbTipPoint
-              (TraceLedgerReplayEvent >$< tracer)
       traceWith tracer $ TraceOpenEvent StartedOpeningLgrDB
-      (lgrDB, replayed) <- LedgerDB.openDB argsLgrDb
-                            (Args.cdbBsTracer args)
-                            lgrReplayTracer
+      (lgrDB, replayed) <- LedgerDB.openDB
+                            argsLgrDb
                             immutableDB
+                            immutableDbTipPoint
                             (Query.getAnyKnownBlock immutableDB volatileDB)
       traceWith tracer $ TraceOpenEvent OpenedLgrDB
 
@@ -281,6 +276,8 @@ isOpen (CDBHandle varState) = readTVar varState <&> \case
     ChainDbClosed    -> False
     ChainDbOpen _env -> True
 
+{- HLINT ignore "Use join" -}
+
 closeDB
   :: forall m blk.
      ( IOLike m
@@ -302,14 +299,14 @@ closeDB (CDBHandle varState) = do
       Follower.closeAllFollowers cdb
       Iterator.closeAllIterators cdb
 
-      killBgThreads <- atomically $ readTVar cdbKillBgThreads
+      killBgThreads <- readTVarIO cdbKillBgThreads
       killBgThreads
 
       ImmutableDB.closeDB cdbImmutableDB
       VolatileDB.closeDB cdbVolatileDB
       LedgerDB.closeDB cdbLedgerDB
 
-      chain <- atomically $ readTVar cdbChain
+      chain <- readTVarIO cdbChain
 
       traceWith cdbTracer $ TraceOpenEvent $ ClosedDB
         (castPoint $ AF.anchorPoint chain)

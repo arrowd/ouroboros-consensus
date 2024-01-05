@@ -52,6 +52,7 @@ import           GHC.Stack (HasCallStack)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.HardFork.Abstract
+import           Ouroboros.Consensus.Ledger.Basics
 import           Ouroboros.Consensus.Ledger.Inspect
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Protocol.Abstract
@@ -63,7 +64,6 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB as LedgerDB
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
-import           Ouroboros.Consensus.Util ((.:))
 import           Ouroboros.Consensus.Util.Condense
 import           Ouroboros.Consensus.Util.Enclose (Enclosing' (..))
 import           Ouroboros.Consensus.Util.IOLike

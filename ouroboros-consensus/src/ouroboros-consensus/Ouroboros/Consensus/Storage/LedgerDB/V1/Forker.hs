@@ -32,9 +32,7 @@ import           Ouroboros.Consensus.Storage.LedgerDB.API as API
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API as BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
-import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog hiding
-                     (ExceededRollback)
-import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog as DbCh
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
 import           Ouroboros.Consensus.Util
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry
@@ -53,7 +51,7 @@ newForkerAtTip ::
   -> ResourceRegistry m
   -> m (Forker m l blk)
 newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
-    acquireAtTip ldbEnv rr >>= newForker h ldbEnv
+    withReadLock (ldbLock ldbEnv) (acquireAtTip ldbEnv rr) >>= newForker h ldbEnv
 
 newForkerAtPoint ::
      ( HeaderHash l ~ HeaderHash blk
@@ -68,7 +66,7 @@ newForkerAtPoint ::
   -> Point blk
   -> m (Either GetForkerError (Forker m l blk))
 newForkerAtPoint h rr pt = getEnv h $ \ldbEnv -> do
-    acquireAtPoint ldbEnv rr pt >>= traverse (newForker h ldbEnv)
+    withReadLock (ldbLock ldbEnv) (acquireAtPoint ldbEnv rr pt) >>= traverse (newForker h ldbEnv)
 
 newForkerAtFromTip ::
      ( IOLike m
@@ -81,7 +79,7 @@ newForkerAtFromTip ::
   -> Word64
   -> m (Either ExceededRollback (Forker m l blk))
 newForkerAtFromTip h rr n = getEnv h $ \ldbEnv -> do
-    acquireAtFromTip ldbEnv rr n >>= traverse (newForker h ldbEnv)
+    withReadLock (ldbLock ldbEnv) (acquireAtFromTip ldbEnv rr n) >>= traverse (newForker h ldbEnv)
 
 -- | Close all open block and header 'Follower's.
 closeAllForkers ::
@@ -114,9 +112,9 @@ acquireAtTip ::
      IOLike m
   => LedgerDBEnv m l blk
   -> ResourceRegistry m
-  -> m (Resources m l)
+  -> ReadLocked m (Resources m l)
 acquireAtTip ldbEnv rr =
-    withReadLock (ldbLock ldbEnv) $ do
+    readLocked $ do
       dblog <- anchorlessChangelog <$> readTVarIO (ldbChangelog ldbEnv)
       (,dblog) <$> acquire ldbEnv rr dblog
 
@@ -134,9 +132,9 @@ acquireAtPoint ::
   => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> Point blk
-  -> m (Either GetForkerError (Resources m l))
+  -> ReadLocked m (Either GetForkerError (Resources m l))
 acquireAtPoint ldbEnv rr pt =
-    withReadLock (ldbLock ldbEnv) $ do
+    readLocked $ do
       dblog <- anchorlessChangelog <$> readTVarIO (ldbChangelog ldbEnv)
       let immTip = castPoint $ getTip $ anchor dblog
       case rollback pt dblog of
@@ -155,9 +153,9 @@ acquireAtFromTip ::
   => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> Word64
-  -> m (Either ExceededRollback (Resources m l))
+  -> ReadLocked m (Either ExceededRollback (Resources m l))
 acquireAtFromTip ldbEnv rr n =
-    withReadLock (ldbLock ldbEnv) $ do
+    readLocked $ do
       dblog <- anchorlessChangelog <$> readTVarIO (ldbChangelog ldbEnv)
       case rollbackN n dblog of
         Nothing ->
@@ -423,7 +421,7 @@ implForkerPush ::
 implForkerPush env newState = atomically $ do
   db <- readTVar (foeChangelog env)
   let db' = prune (foeSecurityParam env)
-          $ extend (DbCh.ValidLedgerState newState) db
+          $ extend newState db
   writeTVar (foeChangelog env) db'
 
 implForkerCommit ::

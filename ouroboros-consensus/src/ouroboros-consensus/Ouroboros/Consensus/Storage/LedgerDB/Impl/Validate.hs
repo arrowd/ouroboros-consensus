@@ -13,11 +13,7 @@
 
 module Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate (
     validate
-    -- * Apply blocks
-  , Ap (..)
-  , applyThenPush
-    -- * Finding blocks
-  , ResolveBlock
+  , ValidLedgerState (..)
   ) where
 
 import           Control.Monad (void)
@@ -36,6 +32,7 @@ import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
+import           Ouroboros.Consensus.Storage.LedgerDB.Init
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache as BlockCache
 import           Ouroboros.Consensus.Storage.LedgerDB.API hiding
                      (getForkerAtFromTip, getPrevApplied, validate)
@@ -263,38 +260,7 @@ defaultResolveWithErrors resolve =
       defaultResolveBlocks resolve
     . defaultThrowLedgerErrors
 
-{-------------------------------------------------------------------------------
-  Finding blocks
--------------------------------------------------------------------------------}
-
--- | Resolve a block
---
--- Resolving a block reference to the actual block lives in @m@ because
--- it might need to read the block from disk (and can therefore not be
--- done inside an STM transaction).
---
--- NOTE: The ledger DB will only ask the 'ChainDB' for blocks it knows
--- must exist. If the 'ChainDB' is unable to fulfill the request, data
--- corruption must have happened and the 'ChainDB' should trigger
--- validation mode.
-type ResolveBlock m blk = RealPoint blk -> m blk
-
--- | Monads in which we can resolve blocks
---
--- To guide type inference, we insist that we must be able to infer the type
--- of the block we are resolving from the type of the monad.
-class Monad m => ResolvesBlocks m blk | m -> blk where
-  doResolveBlock :: ResolveBlock m blk
-
-instance Monad m => ResolvesBlocks (ReaderT (ResolveBlock m blk) m) blk where
-  doResolveBlock r = ReaderT $ \f -> f r
-
 defaultResolveBlocks :: ResolveBlock m blk
                      -> ReaderT (ResolveBlock m blk) m a
                      -> m a
 defaultResolveBlocks = flip runReaderT
-
--- Quite a specific instance so we can satisfy the fundep
-instance Monad m
-      => ResolvesBlocks (ExceptT e (ReaderT (ResolveBlock m blk) m)) blk where
-  doResolveBlock = lift . doResolveBlock
