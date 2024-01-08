@@ -237,8 +237,8 @@ library
     Ouroboros.Consensus.Storage.LedgerDB.API.Config
     Ouroboros.Consensus.Storage.LedgerDB.API.DiskPolicy
     Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+    Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
     Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate
-    Ouroboros.Consensus.Storage.LedgerDB.Init
     Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
     Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API
     Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.InMemory

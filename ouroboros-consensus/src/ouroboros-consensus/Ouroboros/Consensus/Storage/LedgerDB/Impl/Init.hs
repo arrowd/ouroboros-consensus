@@ -1,24 +1,22 @@
-{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns           #-}
+{-# LANGUAGE ConstraintKinds        #-}
+{-# LANGUAGE DeriveGeneric          #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE BangPatterns         #-}
-{-# LANGUAGE ConstraintKinds      #-}
-{-# LANGUAGE DeriveAnyClass       #-}
-{-# LANGUAGE DeriveGeneric        #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE NamedFieldPuns       #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE StandaloneDeriving   #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE NamedFieldPuns         #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
 -- | Logic for initializing the LedgerDB.
 --
 -- Each implementation of the LedgerDB has to provide an instantiation of
 -- 'InitDB'. See 'initialize' for a description of the initialization process.
-module Ouroboros.Consensus.Storage.LedgerDB.Init (
+module Ouroboros.Consensus.Storage.LedgerDB.Impl.Init (
     -- * Arguments
     LedgerDBArgs (..)
   , LedgerDbImplementationSelector (..)
@@ -40,11 +38,11 @@ module Ouroboros.Consensus.Storage.LedgerDB.Init (
 import           Control.Monad (when)
 import           Control.Monad.Except (ExceptT, runExceptT)
 import           Control.Monad.IO.Class
+import           Control.Monad.Reader
 import           Control.Tracer
 import           Data.Functor.Contravariant ((>$<))
 import           Data.Word
 import           GHC.Generics hiding (from)
-import Control.Monad.Reader
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Abstract

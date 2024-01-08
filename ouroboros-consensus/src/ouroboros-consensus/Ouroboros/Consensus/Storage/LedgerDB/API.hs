@@ -164,7 +164,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   ) where
 
 import           Codec.Serialise (Serialise)
-import Control.Monad (forM)
+import           Control.Monad (forM)
 import           Control.Monad.Class.MonadTime.SI
 import           Control.Tracer
 import           Data.Functor.Contravariant

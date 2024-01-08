@@ -1,9 +1,9 @@
 {-# LANGUAGE ConstraintKinds          #-}
 {-# LANGUAGE DataKinds                #-}
 {-# LANGUAGE FlexibleInstances        #-}
-{-# LANGUAGE FunctionalDependencies   #-}
 {-# LANGUAGE GADTs                    #-}
 {-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
 {-# LANGUAGE QuantifiedConstraints    #-}
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
@@ -12,16 +12,14 @@
 {-# LANGUAGE UndecidableInstances     #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate (
-    validate
-  , ValidLedgerState (..)
+    ValidLedgerState (..)
+  , validate
   ) where
 
 import           Control.Monad (void)
 import           Control.Monad.Base
-import           Control.Monad.Except (ExceptT, MonadError (throwError),
-                     runExcept, runExceptT)
-import           Control.Monad.Reader (ReaderT (..))
-import           Control.Monad.Trans
+import           Control.Monad.Except
+import           Control.Monad.Reader
 import           Data.Kind
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -32,10 +30,9 @@ import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
-import           Ouroboros.Consensus.Storage.LedgerDB.Init
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache as BlockCache
-import           Ouroboros.Consensus.Storage.LedgerDB.API hiding
-                     (getForkerAtFromTip, getPrevApplied, validate)
+import           Ouroboros.Consensus.Storage.LedgerDB.API hiding (validate)
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry
@@ -63,11 +60,11 @@ validate ::
   -> Word64          -- ^ How many blocks to roll back
   -> [Header blk]
   -> m (ValidateResult m l blk)
-validate resolve config addPrevApplied getPrevApplied getForkerAtFromTip rr trace blockCache numRollbacks hdrs = do
-    aps <- mkAps <$> atomically getPrevApplied
+validate resolve config addPrevApplied prevApplied forkerAtFromTip rr trace blockCache numRollbacks hdrs = do
+    aps <- mkAps <$> atomically prevApplied
     res <- fmap rewrap $ defaultResolveWithErrors resolve $
              switch
-               getForkerAtFromTip
+               forkerAtFromTip
                rr
                (ExtLedgerCfg config)
                numRollbacks
@@ -117,8 +114,8 @@ switch ::
   -> (TraceValidateEvent blk -> m ())
   -> [Ap bm m l blk c]  -- ^ New blocks to apply
   -> m (Either ExceededRollback (Forker bm l blk))
-switch getForkerAtFromTip rr cfg numRollbacks trace newBlocks = do
-  foEith <- liftBase $ getForkerAtFromTip rr numRollbacks
+switch forkerAtFromTip rr cfg numRollbacks trace newBlocks = do
+  foEith <- liftBase $ forkerAtFromTip rr numRollbacks
   case foEith of
     Left rbExceeded -> pure $ Left rbExceeded
     Right fo -> do

@@ -20,9 +20,9 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API (
     -- * Backing store
     BackingStore (..)
   , BackingStore'
+  , DiffsToFlush (..)
   , InitFrom (..)
   , LedgerBackingStore
-  , DiffsToFlush (..)
     -- * Value handle
   , BackingStoreValueHandle (..)
   , BackingStoreValueHandle'

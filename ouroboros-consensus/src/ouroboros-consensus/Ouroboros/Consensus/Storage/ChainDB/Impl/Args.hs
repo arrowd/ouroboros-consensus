@@ -25,8 +25,8 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
 import           Ouroboros.Consensus.Storage.ImmutableDB (ChunkInfo)
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import           Ouroboros.Consensus.Storage.LedgerDB (Forker')
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Init as LedgerDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB as LedgerDB
+import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Init as LedgerDB
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.ResourceRegistry (ResourceRegistry)
@@ -76,7 +76,7 @@ data ChainDbArgs f m blk = ChainDbArgs {
       -- same time when the background thread processing the blocks can't keep
       -- up.
 
-    , cdbLgrBackendSelector   :: !(LedgerDB.LedgerDbImplementationSelector m)
+    , cdbLgrBackendSelector     :: !(LedgerDB.LedgerDbImplementationSelector m)
       -- ^ Which implementation of the LedgerDB backend to use
     }
 

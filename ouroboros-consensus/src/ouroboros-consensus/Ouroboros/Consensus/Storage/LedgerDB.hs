@@ -23,8 +23,8 @@ import           Ouroboros.Consensus.Storage.ImmutableDB (ImmutableDB)
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
-import           Ouroboros.Consensus.Storage.LedgerDB.Init hiding (openDB)
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Init as Init
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init hiding (openDB)
+import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Init as Init
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.Init as V1
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.Init as V2
 import           Ouroboros.Consensus.Util.CallStack

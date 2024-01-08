@@ -1,8 +1,8 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 
@@ -29,13 +29,13 @@ import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
 import           Ouroboros.Consensus.Storage.LedgerDB.API
-import           Ouroboros.Consensus.Storage.LedgerDB.Init
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
+import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate as Validate
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.Common
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.InMemory as InMemory
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.LSM as LSM
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate as Validate
 import           Ouroboros.Consensus.Util
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -86,7 +86,16 @@ mkInitDb args bss getBlock =
         pure $ implMkLedgerDb h bss
     }
  where
-   LedgerDBArgs {..} = args
+   LedgerDBArgs {
+       lgrTopLevelConfig
+     , lgrGenesis
+     , lgrHasFS
+     , lgrDiskPolicy
+     , lgrTracer
+     , lgrFlushFrequency
+     , lgrQueryBatchSize
+     } = args
+
    emptyF st = empty' st $ case bss of
      InMemory -> InMemory.newInMemoryLedgerTablesHandle
      LSM      -> LSM.newLSMLedgerTablesHandle
