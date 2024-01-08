@@ -6,12 +6,12 @@
 
 module Test.Consensus.Genesis.Tests.LongRangeAttack (tests) where
 
+import           Cardano.Slotting.Slot (withOrigin)
 import           Control.Monad.IOSim (runSimOrThrow)
 import           Data.List (intercalate)
-import           Ouroboros.Consensus.Block.Abstract (HeaderHash)
+import qualified Data.Map.Strict as Map
 import           Ouroboros.Consensus.Util.Condense (condense)
-import           Ouroboros.Network.AnchoredFragment (headAnchor)
-import qualified Ouroboros.Network.AnchoredFragment as AF
+import           Ouroboros.Network.Block (Tip (TipGenesis), tipFromHeader)
 import           Test.Consensus.Genesis.Setup
 import           Test.Consensus.Genesis.Setup.Classifiers
 import           Test.Consensus.PeerSimulator.Run (noTimeoutsSchedulerConfig)
@@ -22,7 +22,7 @@ import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.QuickCheck
 import           Test.Util.Orphans.IOLike ()
-import           Test.Util.TestBlock (TestBlock, unTestHash)
+import           Test.Util.TestBlock (TestBlock)
 import           Test.Util.TestEnv (adjustQuickCheckTests)
 
 tests :: TestTree
@@ -54,23 +54,28 @@ prop_longRangeAttack = do
         (noTimeoutsSchedulerConfig scheduleConfig)
         genesisTest
         schedule
-        $ exceptionCounterexample $ \StateView{svSelectedChain} killed ->
-            killCounterexample killed $
+        $ exceptionCounterexample $ \stateView killed ->
             -- This is the expected behavior of Praos to be reversed with Genesis.
             -- But we are testing Praos for the moment
-            not (isHonestTestFragH svSelectedChain)
-
+            killCounterexample killed $
+            svSelectedChainTip stateView
+              `elem`
+              adversarialTips (svPointSchedule stateView)
   where
     killCounterexample = \case
       [] -> property
       killed -> counterexample ("Some peers were killed: " ++ intercalate ", " (condense <$> killed))
 
-    isHonestTestFragH :: TestFragH -> Bool
-    isHonestTestFragH frag = case headAnchor frag of
-        AF.AnchorGenesis   -> True
-        AF.Anchor _ hash _ -> isHonestTestHeaderHash hash
+    adversarialTips :: PointSchedule -> [Tip TestBlock]
+    adversarialTips =
+      list [TipGenesis] id
+        . map (withOrigin TipGenesis tipFromHeader)
+        . Map.elems
+        . Map.delete HonestPeer
+        . lastBlockPoints
 
-    isHonestTestHeaderHash :: HeaderHash TestBlock -> Bool
-    isHonestTestHeaderHash = all (0 ==) . unTestHash
+    list :: [b] -> (a -> b) -> [a] -> [b]
+    list xs _ [] = xs
+    list _ f xs  = map f xs
 
     scheduleConfig = defaultPointScheduleConfig
