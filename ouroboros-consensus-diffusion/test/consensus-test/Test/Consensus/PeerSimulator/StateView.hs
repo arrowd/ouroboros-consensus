@@ -6,6 +6,8 @@ module Test.Consensus.PeerSimulator.StateView (
   , StateViewTracers (..)
   , defaultStateViewTracers
   , snapshotStateView
+  , svImmutableDbTip
+  , svSelectedChainTip
   ) where
 
 import           Control.Tracer (Tracer)
@@ -15,10 +17,12 @@ import qualified Ouroboros.Consensus.Storage.ChainDB as ChainDB
 import           Ouroboros.Consensus.Util.Condense (Condense (condense))
 import           Ouroboros.Consensus.Util.IOLike (IOLike, SomeException,
                      atomically)
+import qualified Ouroboros.Network.AnchoredFragment as AF
+import           Ouroboros.Network.Block (Tip, tipFromHeader)
 import           Test.Consensus.PeerSimulator.Trace (terseFragH)
 import           Test.Consensus.PointSchedule (PeerId,
                      PointSchedule (PointSchedule), TestFragH, ticks)
-import           Test.Util.TestBlock (TestBlock)
+import           Test.Util.TestBlock (TestBlock, testHeader)
 import           Test.Util.Tracer (recordingTracerTVar)
 
 -- | A record to associate an exception thrown by the ChainSync
@@ -40,6 +44,14 @@ data StateView = StateView {
     svChainSyncExceptions :: [ChainSyncException]
   }
   deriving Show
+
+-- | Tip of the StateView's selection.
+svSelectedChainTip :: StateView -> Tip TestBlock
+svSelectedChainTip = either AF.anchorToTip (tipFromHeader . testHeader) . AF.head . svSelectedChain
+
+-- | Tip of the StateView's immutable database.
+svImmutableDbTip :: StateView -> Tip TestBlock
+svImmutableDbTip = AF.anchorToTip . AF.anchor . svSelectedChain
 
 instance Condense StateView where
   condense StateView {svSelectedChain, svChainSyncExceptions, svPointSchedule=PointSchedule{ticks}} =
