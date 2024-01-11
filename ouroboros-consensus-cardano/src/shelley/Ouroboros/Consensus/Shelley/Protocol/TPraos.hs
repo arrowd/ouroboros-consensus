@@ -47,7 +47,7 @@ type instance ShelleyProtocolHeader (TPraos c) = SL.BHeader c
 
 data TPraosEnvelopeError
   = ChainPredicateFailure ChainPredicateFailure
-  | InvalidCheckpoint -- TODO args
+  | CheckpointMismatch -- TODO args
   deriving stock (Show, Eq, Generic)
   deriving anyclass (NoThunks)
 
@@ -70,7 +70,7 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (TPraos c) where
         (SL.makeHeaderView $ protocolHeaderView @(TPraos c) hdr)
     whenJust (Map.lookup (pHeaderBlock hdr) checkpoints) $ \checkpoint ->
       when (checkpoint /= pHeaderHash hdr) $
-        throwError InvalidCheckpoint
+        throwError CheckpointMismatch
     where
       MaxMajorProtVer maxPV = tpraosMaxMajorPV $ tpraosParams cfg
 

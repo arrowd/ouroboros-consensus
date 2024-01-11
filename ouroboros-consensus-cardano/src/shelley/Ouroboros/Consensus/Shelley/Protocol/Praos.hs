@@ -49,7 +49,7 @@ data PraosEnvelopeError
   = ObsoleteNode Version Version
   | HeaderSizeTooLarge Natural Natural
   | BlockSizeTooLarge Natural Natural
-  | InvalidCheckpoint -- TODO args
+  | CheckpointMismatch -- TODO args
   deriving (Eq, Generic, Show)
 
 instance NoThunks PraosEnvelopeError
@@ -75,7 +75,7 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
         BlockSizeTooLarge (bhviewBSize bhv) maxBodySize
     whenJust (Map.lookup (pHeaderBlock hdr) checkpoints) $ \checkpoint ->
       when (checkpoint /= pHeaderHash hdr) $
-        throwError InvalidCheckpoint
+        throwError CheckpointMismatch
     where
       pp = praosParams cfg
       (MaxMajorProtVer maxpv) = praosMaxMajorPV pp
