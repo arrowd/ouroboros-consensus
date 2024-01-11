@@ -5,8 +5,8 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Flush (
 
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
-import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util.IOLike
 
 flushLedgerDB :: (MonadSTM m, GetTip l, HasLedgerTables l)

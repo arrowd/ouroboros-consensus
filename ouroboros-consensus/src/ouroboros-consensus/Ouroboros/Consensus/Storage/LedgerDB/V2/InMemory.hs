@@ -38,7 +38,6 @@ import           Data.String (fromString)
 import           GHC.Generics
 import           NoThunks.Class
 import           Ouroboros.Consensus.Block
-import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
@@ -134,7 +133,7 @@ takeSnapshot ::
      , LedgerDbSerialiseConstraints blk
      , LedgerSupportsProtocol blk
      )
-  => TopLevelConfig blk
+  => CodecConfig blk
   -> Tracer m (TraceSnapshotEvent blk)
   -> SomeHasFS m
   -> StateRef m (ExtLedgerState blk)
@@ -162,7 +161,7 @@ loadSnapshot ::
     , LedgerSupportsProtocol blk
     , IOLike m
     )
-    => TopLevelConfig blk
+    => CodecConfig blk
     -> SomeHasFS m
     -> DiskSnapshot
     -> m (Either (SnapshotFailure blk) (LedgerSeq' m blk, RealPoint blk))

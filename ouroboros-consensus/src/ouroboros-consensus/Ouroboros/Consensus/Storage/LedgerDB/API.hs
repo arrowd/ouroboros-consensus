@@ -561,6 +561,7 @@ data TraceLedgerDBEvent blk =
       LedgerDBSnapshotEvent !(TraceSnapshotEvent blk)
     | LedgerReplayStartEvent !(TraceReplayStartEvent blk)
     | LedgerReplayProgressEvent !(TraceReplayProgressEvent blk)
+    | LedgerDBForkerEvent  -- TODO(js_ldb)
   deriving (Show, Eq, Generic)
 
 {-------------------------------------------------------------------------------

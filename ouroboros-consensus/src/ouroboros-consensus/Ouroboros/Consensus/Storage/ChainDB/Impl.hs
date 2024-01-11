@@ -38,7 +38,6 @@ import           Control.Monad.Trans.Class (lift)
 import           Control.Tracer
 import           Data.Functor ((<&>))
 import           Data.Functor.Contravariant ((>$<))
-import           Data.Functor.Identity (Identity)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe.Strict (StrictMaybe (..))
 import           GHC.Stack (HasCallStack)
@@ -59,9 +58,12 @@ import qualified Ouroboros.Consensus.Storage.ChainDB.Impl.Iterator as Iterator
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl.Query as Query
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
+import qualified Ouroboros.Consensus.Storage.ImmutableDB.Impl.Stream as ImmutableDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB as LedgerDB
+import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Args as LedgerDB
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util (whenJust)
+import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry (WithTempRegistry,
                      allocate, runInnerWithTempRegistry, runWithTempRegistry,
@@ -86,7 +88,7 @@ withDB
      , SerialiseDiskConstraints blk
      , MonadBase m m
      )
-  => ChainDbArgs Identity m blk
+  => Complete Args.SomeChainDbArgs m blk
   -> (ChainDB m blk -> m a)
   -> m a
 withDB args = bracket (fst <$> openDBInternal args True) API.closeDB
@@ -101,7 +103,7 @@ openDB
      , SerialiseDiskConstraints blk
      , MonadBase m m
      )
-  => ChainDbArgs Identity m blk
+  => Complete Args.SomeChainDbArgs m blk
   -> m (ChainDB m blk)
 openDB args = fst <$> openDBInternal args True
 
@@ -116,10 +118,10 @@ openDBInternal
      , HasCallStack
      , MonadBase m m
      )
-  => ChainDbArgs Identity m blk
+  => Complete Args.SomeChainDbArgs m blk
   -> Bool -- ^ 'True' = Launch background tasks
   -> m (ChainDB m blk, Internal m blk)
-openDBInternal args launchBgTasks = runWithTempRegistry $ do
+openDBInternal (Args.SomeChainDbArgs args) launchBgTasks = runWithTempRegistry $ do
     lift $ traceWith tracer $ TraceOpenEvent StartedOpeningDB
     lift $ traceWith tracer $ TraceOpenEvent StartedOpeningImmutableDB
     immutableDB <- ImmutableDB.openDB argsImmutableDb $ innerOpenCont ImmutableDB.closeDB
@@ -136,8 +138,8 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
       traceWith tracer $ TraceOpenEvent OpenedVolatileDB
       traceWith tracer $ TraceOpenEvent StartedOpeningLgrDB
       (lgrDB, replayed) <- LedgerDB.openDB
-                            argsLgrDb
-                            immutableDB
+                            (LedgerDB.SomeLedgerDbArgs argsLgrDb)
+                            (ImmutableDB.streamAPI immutableDB)
                             immutableDbTipPoint
                             (Query.getAnyKnownBlock immutableDB volatileDB)
       traceWith tracer $ TraceOpenEvent OpenedLgrDB
@@ -196,7 +198,6 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
                     , cdbNextFollowerKey = varNextFollowerKey
                     , cdbCopyLock        = varCopyLock
                     , cdbTracer          = tracer
-                    , cdbTraceLedger     = Args.cdbTraceLedger args
                     , cdbRegistry        = Args.cdbRegistry args
                     , cdbGcDelay         = Args.cdbGcDelay args
                     , cdbGcInterval      = Args.cdbGcInterval args
@@ -253,7 +254,7 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
     return ((chainDB, testing), env)
   where
     tracer = Args.cdbTracer args
-    (argsImmutableDb, argsVolatileDb, argsLgrDb, _) = Args.fromChainDbArgs args
+    Args.ChainDbArgs argsImmutableDb argsVolatileDb argsLgrDb _ = args
 
 -- | We use 'runInnerWithTempRegistry' for the component databases.
 innerOpenCont ::
@@ -276,8 +277,6 @@ isOpen (CDBHandle varState) = readTVar varState <&> \case
     ChainDbClosed    -> False
     ChainDbOpen _env -> True
 
-{- HLINT ignore "Use join" -}
-
 closeDB
   :: forall m blk.
      ( IOLike m
@@ -299,14 +298,14 @@ closeDB (CDBHandle varState) = do
       Follower.closeAllFollowers cdb
       Iterator.closeAllIterators cdb
 
-      killBgThreads <- readTVarIO cdbKillBgThreads
+      killBgThreads <- atomically $ readTVar cdbKillBgThreads
       killBgThreads
 
       ImmutableDB.closeDB cdbImmutableDB
       VolatileDB.closeDB cdbVolatileDB
       LedgerDB.closeDB cdbLedgerDB
 
-      chain <- readTVarIO cdbChain
+      chain <- atomically $ readTVar cdbChain
 
       traceWith cdbTracer $ TraceOpenEvent $ ClosedDB
         (castPoint $ AF.anchorPoint chain)

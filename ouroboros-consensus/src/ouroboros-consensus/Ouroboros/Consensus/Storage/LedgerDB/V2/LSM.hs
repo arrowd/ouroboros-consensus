@@ -10,7 +10,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.V2.LSM (
 
 import           Control.Tracer
 import           Ouroboros.Consensus.Block
-import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables
@@ -33,14 +32,14 @@ loadSnapshot ::
      , LedgerSupportsProtocol blk
      , IOLike m
      )
-  => TopLevelConfig blk
+  => CodecConfig blk
   -> SomeHasFS m
   -> DiskSnapshot
   -> m (Either (SnapshotFailure blk) (LedgerSeq' m blk, RealPoint blk))
 loadSnapshot = undefined
 
 takeSnapshot ::
-     TopLevelConfig blk
+     CodecConfig blk
   -> Tracer m (TraceSnapshotEvent blk)
   -> SomeHasFS m
   -> StateRef m (ExtLedgerState blk)

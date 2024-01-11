@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators    #-}
 
 {- | Snapshots
 
@@ -137,16 +139,17 @@ import           Control.Monad.Except
 import           Control.Tracer
 import qualified Data.List as List
 import           Ouroboros.Consensus.Block
-import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
-import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 import           System.FS.API.Types
 
@@ -175,7 +178,7 @@ takeSnapshot ::
   , LedgerSupportsProtocol blk
   )
   => StrictTVar m (DbChangelog' blk)
-  -> TopLevelConfig blk
+  -> CodecConfig blk
   -> Tracer m (TraceSnapshotEvent blk)
   -> SomeHasFS m
   -> BackingStore' m blk
@@ -226,10 +229,11 @@ loadSnapshot ::
      ( IOLike m
      , LedgerDbSerialiseConstraints blk
      , LedgerSupportsProtocol blk
+     , SingI impl
      )
   => Tracer m BackingStoreTraceByBackend
-  -> BackingStoreSelector m
-  -> TopLevelConfig blk
+  -> BackingStoreArgs impl m
+  -> CodecConfig blk
   -> SomeHasFS m
   -> DiskSnapshot
   -> m (Either

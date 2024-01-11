@@ -788,7 +788,6 @@ chainSelectionForBlock cdb@CDB{..} blockCache hdr punish = withRegistry $ \rr ->
           mkTraceEvent events nti curChain newChain
         whenJust (strictMaybeToMaybe prevTentativeHeader) $ traceWith $
           PipeliningEvent . OutdatedTentativeHeader >$< addBlockTracer
-        traceWith cdbTraceLedger newForker
 
         LedgerDB.forkerClose currentForker
         LedgerDB.forkerClose newForker

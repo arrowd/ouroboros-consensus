@@ -17,16 +17,9 @@
 -- Each implementation of the LedgerDB has to provide an instantiation of
 -- 'InitDB'. See 'initialize' for a description of the initialization process.
 module Ouroboros.Consensus.Storage.LedgerDB.Impl.Init (
-    -- * Arguments
-    LedgerDBArgs (..)
-  , LedgerDbImplementationSelector (..)
-  , defaultArgs
     -- * Find blocks
-  , ResolveBlock
+    ResolveBlock
   , ResolvesBlocks (..)
-    -- * Should flush
-  , FlushFrequency (..)
-  , defaultShouldFlush
     -- * Initialization interface
   , InitDB (..)
     -- * Initialization logic
@@ -37,24 +30,21 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Init (
 
 import           Control.Monad (when)
 import           Control.Monad.Except (ExceptT, runExceptT)
-import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Tracer
 import           Data.Functor.Contravariant ((>$<))
 import           Data.Word
 import           GHC.Generics hiding (from)
 import           Ouroboros.Consensus.Block
-import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.Inspect
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
-import           Ouroboros.Consensus.Storage.ImmutableDB.API (ImmutableDB)
 import           Ouroboros.Consensus.Storage.ImmutableDB.Impl.Stream
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
-import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.LMDB as LMDB
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -94,64 +84,8 @@ instance Monad m
   doResolveBlock = lift . doResolveBlock
 
 {-------------------------------------------------------------------------------
-  Arguments
+  Initialization
 -------------------------------------------------------------------------------}
-
--- | Arguments required to initialize a LedgerDB.
-data LedgerDBArgs f m blk = LedgerDBArgs {
-      lgrDiskPolicy      :: DiskPolicy
-    , lgrGenesis         :: HKD f (m (ExtLedgerState blk ValuesMK))
-    , lgrHasFS           :: SomeHasFS m
-    , lgrTopLevelConfig  :: HKD f (TopLevelConfig blk)
-    , lgrTracer          :: Tracer m (TraceLedgerDBEvent blk)
-    , lgrFlushFrequency  :: FlushFrequency
-    , lgrQueryBatchSize  :: QueryBatchSize
-    , lgrBackendSelector :: LedgerDbImplementationSelector m
-    }
-
-data LedgerDbImplementationSelector m where
-  V1InMemory ::                                 LedgerDbImplementationSelector m
-  V1LMDB     :: MonadIO m => LMDB.LMDBLimits -> LedgerDbImplementationSelector m
-  V2InMemory ::                                 LedgerDbImplementationSelector m
-  V2LSM      ::                                 LedgerDbImplementationSelector m
-
--- | Default arguments
-defaultArgs ::
-     Applicative m
-  => SomeHasFS m
-  -> DiskPolicy
-  -> FlushFrequency
-  -> QueryBatchSize
-  -> LedgerDbImplementationSelector m
-  -> LedgerDBArgs Defaults m blk
-defaultArgs lgrHasFS diskPolicy flushFreq qbatchSize lgrBackendSelector = LedgerDBArgs {
-      lgrDiskPolicy           = diskPolicy
-    , lgrGenesis              = NoDefault
-    , lgrHasFS
-    , lgrTopLevelConfig       = NoDefault
-    , lgrTracer               = nullTracer
-    , lgrFlushFrequency       = flushFreq
-    , lgrQueryBatchSize       = qbatchSize
-    , lgrBackendSelector
-    }
-
--- | The number of diffs in the immutable part of the chain that we have to see
--- before we flush the ledger state to disk. See 'onDiskShouldFlush'.
---
--- INVARIANT: Should be at least 0.
-data FlushFrequency =
-  -- | A default value, which is determined by a specific 'DiskPolicy'. See
-    -- 'defaultDiskPolicy' as an example.
-    DefaultFlushFrequency
-    -- | A requested value: the number of diffs in the immutable part of the
-    -- chain required before flushing.
-  | RequestedFlushFrequency Word64
-  deriving (Show, Eq, Generic)
-
-defaultShouldFlush :: FlushFrequency -> (Word64 -> Bool)
-defaultShouldFlush requestedFlushFrequency = case requestedFlushFrequency of
-      RequestedFlushFrequency value -> (>= value)
-      DefaultFlushFrequency         -> (>= 100)
 
 -- | Initialization log
 --
@@ -347,18 +281,18 @@ replayStartingWith tracer cfg stream initDb from InitDB{initApplyBlock, currentT
 -- In addition to the ledger DB also returns the number of immutable blocks that
 -- were replayed.
 openDB ::
-  forall m l blk db internal.
+  forall m l blk db flavor impl internal.
   ( IOLike m
   , LedgerSupportsProtocol blk
   , InspectLedger blk
   , HasCallStack
   , l ~ ExtLedgerState blk
   )
-  => LedgerDBArgs Identity m blk
+  => Complete LedgerDbArgs flavor impl m blk
   -- ^ Stateless initializaton arguments
   -> InitDB m blk db internal
   -- ^ How to initialize the db.
-  -> ImmutableDB m blk
+  -> StreamAPI m blk blk
   -- ^ Reference to the immutable DB
   --
   -- After reading a snapshot from disk, the ledger DB will be brought up to
@@ -367,40 +301,40 @@ openDB ::
   -- ChainDB driver.
   -> Point blk
   -> m (LedgerDB m l blk, Word64)
-openDB args initDb immutableDB replayGoal =
-    f <$> openDBInternal args initDb immutableDB replayGoal
+openDB args initDb stream replayGoal =
+    f <$> openDBInternal args initDb stream replayGoal
   where f (ldb, replayCounter, _) = (ldb, replayCounter)
 
 -- | Open the ledger DB and expose internals for testing purposes
 openDBInternal ::
-  forall m l blk db internal.
+  forall m l blk flavor db impl internal.
   ( IOLike m
   , LedgerSupportsProtocol blk
   , InspectLedger blk
   , HasCallStack
   , l ~ ExtLedgerState blk
   )
-  => LedgerDBArgs Identity m blk
+  => Complete LedgerDbArgs flavor impl m blk
   -> InitDB m blk db internal
-  -> ImmutableDB m blk
+  -> StreamAPI m blk blk
   -> Point blk
   -> m (LedgerDB m l blk, Word64, internal)
-openDBInternal args@LedgerDBArgs { lgrHasFS = SomeHasFS fs } initDb immutableDB replayGoal = do
+openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream replayGoal = do
     createDirectoryIfMissing fs True (mkFsPath [])
     (_initLog, db, replayCounter) <-
           initialize
             lgrTracer
             lgrHasFS
-            (configLedgerDb lgrTopLevelConfig)
-            (streamAPI immutableDB)
+            lgrConfig
+            stream
             replayGoal
             initDb
     (ledgerDb, internal) <- mkLedgerDb initDb db
     return (ledgerDb, replayCounter, internal)
 
   where
-    LedgerDBArgs {
+    LedgerDbArgs {
         lgrHasFS
-      , lgrTopLevelConfig
+      , lgrConfig
       , lgrTracer
       } = args

@@ -1,5 +1,8 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs            #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators       #-}
 
 -- | See "Ouroboros.Consensus.Storage.LedgerDB.BackingStore.API" for the
 -- documentation. This module just puts together the implementations for the
@@ -17,7 +20,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore (
     -- in this module.
     module Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API
     -- * Initialization
-  , BackingStoreSelector (..)
   , newBackingStore
   , restoreBackingStore
     -- * Tracing
@@ -28,15 +30,18 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore (
   ) where
 
 import           Cardano.Slotting.Slot
-import           Control.Monad.IO.Class
 import           Control.Tracer
 import           Data.Functor.Contravariant
+import           Data.SOP.Dict
 import           GHC.Stack (HasCallStack)
 import           Ouroboros.Consensus.Ledger.Basics
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.InMemory as InMemory
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.LMDB as LMDB
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 import           System.FS.API.Types
 
@@ -51,9 +56,10 @@ restoreBackingStore ::
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
+     , SingI impl
      )
   => Tracer m BackingStoreTraceByBackend
-  -> BackingStoreSelector m
+  -> BackingStoreArgs impl m
   -> SomeHasFS m
   -> FsPath
   -> m (LedgerBackingStore m l)
@@ -66,9 +72,10 @@ newBackingStore ::
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
+     , SingI impl
      )
   => Tracer m BackingStoreTraceByBackend
-  -> BackingStoreSelector m
+  -> BackingStoreArgs impl m
   -> SomeHasFS m
   -> LedgerTables l ValuesMK
   -> m (LedgerBackingStore m l)
@@ -76,28 +83,25 @@ newBackingStore trcr bss someHasFS tables =
     newBackingStoreInitialiser trcr bss someHasFS (InitFromValues Origin tables)
 
 newBackingStoreInitialiser ::
+     forall m l impl.
      ( IOLike m
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
+     , SingI impl
      )
   => Tracer m BackingStoreTraceByBackend
-  -> BackingStoreSelector m
+  -> BackingStoreArgs impl m
   -> BackingStoreInitializer m l
 newBackingStoreInitialiser trcr bss =
-  case bss of
-    LMDBBackingStore limits ->
+  case (sing :: Sing impl, bss) of
+    (SOnDisk, LMDBBackingStoreArgs limits Dict) ->
       LMDB.newLMDBBackingStore
         (LMDBTrace >$< trcr)
         limits
-    InMemoryBackingStore ->
+    (SInMemory, InMemoryBackingStoreArgs) ->
       InMemory.newInMemoryBackingStore
         (InMemoryTrace >$< trcr)
-
--- | The selector to choose which backend we would like to use.
-data BackingStoreSelector m where
-  LMDBBackingStore     :: MonadIO m => !LMDB.LMDBLimits -> BackingStoreSelector m
-  InMemoryBackingStore ::                                  BackingStoreSelector m
 
 {-------------------------------------------------------------------------------
   Tracing

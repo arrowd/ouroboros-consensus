@@ -33,6 +33,7 @@ import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API as BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry

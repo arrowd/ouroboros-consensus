@@ -221,14 +221,12 @@ encodeExtLedgerState' ::
       EncodeDisk blk (ChainDepState (BlockProtocol blk)),
       EncodeDisk blk (AnnTip blk)
      )
-  => (TopLevelConfig blk -> ExtLedgerState blk EmptyMK -> Encoding)
+  => (CodecConfig blk -> ExtLedgerState blk EmptyMK -> Encoding)
 encodeExtLedgerState' cfg =
   encodeExtLedgerState
-    (encodeDisk ccfg)
-    (encodeDisk ccfg)
-    (encodeDisk ccfg)
-  where
-    ccfg = configCodec cfg
+    (encodeDisk cfg)
+    (encodeDisk cfg)
+    (encodeDisk cfg)
 
 decodeExtLedgerState :: (forall s. Decoder s (LedgerState    blk mk))
                      -> (forall s. Decoder s (ChainDepState  (BlockProtocol blk)))
@@ -252,14 +250,12 @@ decodeExtLedgerState' ::
       DecodeDisk blk (ChainDepState (BlockProtocol blk)),
       DecodeDisk blk (AnnTip blk)
      )
-  => (TopLevelConfig blk -> forall s. Decoder s (ExtLedgerState blk EmptyMK))
+  => (CodecConfig blk -> forall s. Decoder s (ExtLedgerState blk EmptyMK))
 decodeExtLedgerState' cfg =
   decodeExtLedgerState
-    (decodeDisk ccfg)
-    (decodeDisk ccfg)
-    (decodeDisk ccfg)
-  where
-    ccfg = configCodec cfg
+    (decodeDisk cfg)
+    (decodeDisk cfg)
+    (decodeDisk cfg)
 
 {-------------------------------------------------------------------------------
   Ledger Tables

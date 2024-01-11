@@ -1,15 +1,14 @@
 {-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 
-module Ouroboros.Consensus.Storage.LedgerDB.V1.Init (
-    BackingStoreSelector (..)
-  , mkInitDb
-  ) where
+module Ouroboros.Consensus.Storage.LedgerDB.V1.Init (mkInitDb) where
 
 import           Control.Monad
 import           Control.Monad.Base
@@ -30,9 +29,13 @@ import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables.Utils
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
 import           Ouroboros.Consensus.Storage.LedgerDB.API
+import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate as Validate
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
@@ -40,36 +43,38 @@ import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog as DbCh
                      (empty, flushableLength)
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Flush
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Forker
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Snapshots
-import           Ouroboros.Consensus.Util
+import           Ouroboros.Consensus.Util hiding (Dict)
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry
+import           Ouroboros.Consensus.Util.Singletons
 import           Ouroboros.Network.AnchoredSeq (AnchoredSeq)
 import qualified Ouroboros.Network.AnchoredSeq as AS
 
 mkInitDb ::
-  forall m blk.
+  forall m blk impl.
   ( LedgerSupportsProtocol blk
   , IOLike m
   , LedgerDbSerialiseConstraints blk
   , MonadBase m m
+  , SingI impl
   )
-  => LedgerDBArgs Identity m blk
-  -> BackingStoreSelector m
+  => Complete LedgerDbArgs FlavorV1 impl m blk
   -> ResolveBlock m blk
   -> InitDB m blk (DbChangelog' blk, BackingStore' m blk) (TestInternals m (ExtLedgerState blk) blk)
-mkInitDb args bss getBlock =
-  let bsTracer = nullTracer
+mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
+  let bsTracer = nullTracer -- TODO @js
   in InitDB {
     initFromGenesis = do
       st <- lgrGenesis
       let chlog = DbCh.empty (forgetLedgerTables st)
       backingStore <-
-        newBackingStore bsTracer bss lgrHasFS (projectLedgerTables st)
+        newBackingStore bsTracer (v1BackendArgs flavorArgs) lgrHasFS (projectLedgerTables st)
       pure (chlog, backingStore)
-  , initFromSnapshot = loadSnapshot bsTracer bss lgrTopLevelConfig lgrHasFS
+  , initFromSnapshot = loadSnapshot bsTracer (v1BackendArgs flavorArgs) (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS
   , closeDb = \(_, backingStore) -> bsClose backingStore
   , initApplyBlock = \cfg blk (chlog, bstore) -> do
       !chlog' <- onChangelogM (applyThenPush cfg blk (readKeySets bstore)) chlog
@@ -77,7 +82,7 @@ mkInitDb args bss getBlock =
       -- finishined initializing: only this thread has access to the backing
       -- store.
       chlog'' <- unsafeIgnoreWriteLock
-        $ if defaultShouldFlush lgrFlushFrequency (flushableLength $ anchorlessChangelog chlog')
+        $ if defaultShouldFlush flushFreq (flushableLength $ anchorlessChangelog chlog')
           then do
             let (toFlush, toKeep) = splitForFlushing chlog'
             mapM_ (flushIntoBackingStore bstore) toFlush
@@ -99,29 +104,30 @@ mkInitDb args bss getBlock =
                , ldbPrevApplied    = prevApplied
                , ldbForkers        = forkers
                , ldbNextForkerKey  = nextForkerKey
-               , ldbDiskPolicy     = lgrDiskPolicy
+               , ldbSnapshotPolicy = lgrSnapshotPolicy
                , ldbTracer         = lgrTracer
-               , ldbCfg            = lgrTopLevelConfig
+               , ldbCfg            = lgrConfig
                , ldbHasFS          = lgrHasFS
-               , ldbShouldFlush    = defaultShouldFlush lgrFlushFrequency
+               , ldbShouldFlush    = defaultShouldFlush flushFreq
                , ldbQueryBatchSize = lgrQueryBatchSize
                , ldbResolveBlock   = getBlock
-               , ldbSecParam       = configSecurityParam lgrTopLevelConfig
+               , ldbSecParam       = ledgerDbCfgSecParam lgrConfig
                , ldbBsTracer       = bsTracer
                }
       h <- LDBHandle <$> newTVarIO (LedgerDBOpen env)
       pure $ implMkLedgerDb h
   }
   where
-    LedgerDBArgs {
+    LedgerDbArgs {
         lgrHasFS
       , lgrTracer
-      , lgrDiskPolicy
-      , lgrTopLevelConfig
+      , lgrSnapshotPolicy
+      , lgrConfig
       , lgrGenesis
-      , lgrFlushFrequency
       , lgrQueryBatchSize
       } = args
+
+    V1Args flushFreq _ = flavorArgs
 
 implMkLedgerDb ::
      forall m l blk.
@@ -201,7 +207,7 @@ implValidate ::
 implValidate h ldbEnv =
   Validate.validate
     (ldbResolveBlock ldbEnv)
-    (ldbCfg ldbEnv)
+    (getExtLedgerCfg . ledgerDbCfg $ ldbCfg ldbEnv)
     (\l -> do
         prev <- readTVar (ldbPrevApplied ldbEnv)
         writeTVar (ldbPrevApplied ldbEnv) (foldl' (flip Set.insert) prev l))
@@ -224,22 +230,22 @@ implTryTakeSnapshot ::
      )
   => LedgerDBEnv m l blk -> Maybe (Time, Time) -> Word64 -> m SnapCounters
 implTryTakeSnapshot env mTime nrBlocks =
-    if onDiskShouldTakeSnapshot (ldbDiskPolicy env) (uncurry (flip diffTime) <$> mTime) nrBlocks then do
+    if onDiskShouldTakeSnapshot (ldbSnapshotPolicy env) (uncurry (flip diffTime) <$> mTime) nrBlocks then do
       void $ withReadLock (ldbLock env) (takeSnapshot
                                           (ldbChangelog env)
-                                          (ldbCfg env)
+                                          (configCodec . getExtLedgerCfg . ledgerDbCfg $ ldbCfg env)
                                           (LedgerDBSnapshotEvent >$< ldbTracer env)
                                           (ldbHasFS env)
                                           (ldbBackingStore env))
       void $ trimSnapshots
                 (LedgerDBSnapshotEvent >$< ldbTracer env)
                 (ldbHasFS env)
-                (ldbDiskPolicy env)
+                (ldbSnapshotPolicy env)
       (`SnapCounters` 0) . Just <$> maybe getMonotonicTime (pure . snd) mTime
     else
       pure $ SnapCounters (fst <$> mTime) nrBlocks
 
--- If the DbChangelog in the LedgerDB can flush (based on the DiskPolicy
+-- If the DbChangelog in the LedgerDB can flush (based on the SnapshotPolicy
 -- with which this LedgerDB was opened), flush differences to the backing
 -- store. Note this acquires a write lock on the backing store.
 implTryFlush ::

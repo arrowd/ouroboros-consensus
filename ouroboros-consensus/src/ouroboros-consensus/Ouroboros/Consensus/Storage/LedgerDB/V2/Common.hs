@@ -42,6 +42,7 @@ import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables.Utils
 import           Ouroboros.Consensus.Storage.LedgerDB.API
+import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
@@ -76,11 +77,10 @@ data LedgerDBEnv m l blk = LedgerDBEnv {
   , ldbForkers        :: !(StrictTVar m (Map ForkerKey (ForkerEnv m l blk)))
   , ldbNextForkerKey  :: !(StrictTVar m ForkerKey)
 
-  , ldbDiskPolicy     :: !DiskPolicy
+  , ldbSnapshotPolicy :: !SnapshotPolicy
   , ldbTracer         :: !(Tracer m (TraceLedgerDBEvent blk))
-  , ldbCfg            :: !(TopLevelConfig blk)
+  , ldbCfg            :: !(LedgerDbCfg l)
   , ldbHasFS          :: !(SomeHasFS m)
-  , ldbShouldFlush    :: !(Word64 -> Bool)
   , ldbQueryBatchSize :: !QueryBatchSize
   , ldbResolveBlock   :: !(ResolveBlock m blk)
   , ldbSecParam       :: !SecurityParam
@@ -91,6 +91,7 @@ deriving instance ( IOLike m
                   , NoThunks (l EmptyMK)
                   , NoThunks (Key l)
                   , NoThunks (Value l)
+                  , NoThunks (LedgerCfg l)
                   ) => NoThunks (LedgerDBEnv m l blk)
 
 {-------------------------------------------------------------------------------
@@ -111,6 +112,7 @@ deriving instance ( IOLike m
                   , NoThunks (l EmptyMK)
                   , NoThunks (Key l)
                   , NoThunks (Value l)
+                  , NoThunks (LedgerCfg l)
                   ) => NoThunks (LedgerDBState m l blk)
 
 
