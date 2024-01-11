@@ -45,14 +45,14 @@ type instance ProtoCrypto (Praos c) = c
 
 type instance ShelleyProtocolHeader (Praos c) = Header c
 
-data PraosEnvelopeError
+data PraosEnvelopeError c
   = ObsoleteNode Version Version
   | HeaderSizeTooLarge Natural Natural
   | BlockSizeTooLarge Natural Natural
-  | CheckpointMismatch -- TODO args
+  | CheckpointMismatch (ShelleyHash c) (ShelleyHash c)
   deriving (Eq, Generic, Show)
 
-instance NoThunks PraosEnvelopeError
+instance NoThunks (PraosEnvelopeError c)
 
 instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
   pHeaderHash hdr = ShelleyHash $ headerHash hdr
@@ -63,7 +63,7 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
   pHeaderSize hdr = fromIntegral $ headerSize hdr
   pHeaderBlockSize (Header body _) = fromIntegral $ hbBodySize body
 
-  type EnvelopeCheckError _ = PraosEnvelopeError
+  type EnvelopeCheckError (Praos c) = PraosEnvelopeError c
 
   envelopeChecks cfg checkpoints lv hdr = do
     unless (m <= maxpv) $ throwError (ObsoleteNode m maxpv)
@@ -75,7 +75,8 @@ instance PraosCrypto c => ProtocolHeaderSupportsEnvelope (Praos c) where
         BlockSizeTooLarge (bhviewBSize bhv) maxBodySize
     whenJust (Map.lookup (pHeaderBlock hdr) checkpoints) $ \checkpoint ->
       when (checkpoint /= pHeaderHash hdr) $
-        throwError CheckpointMismatch
+        throwError $
+          CheckpointMismatch (pHeaderHash hdr) checkpoint
     where
       pp = praosParams cfg
       (MaxMajorProtVer maxpv) = praosMaxMajorPV pp
