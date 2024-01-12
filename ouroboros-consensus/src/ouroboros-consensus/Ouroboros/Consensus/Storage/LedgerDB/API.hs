@@ -1,22 +1,25 @@
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ConstraintKinds          #-}
-{-# LANGUAGE DataKinds                #-}
-{-# LANGUAGE DeriveAnyClass           #-}
-{-# LANGUAGE DeriveGeneric            #-}
-{-# LANGUAGE DerivingVia              #-}
-{-# LANGUAGE FlexibleContexts         #-}
-{-# LANGUAGE FlexibleInstances        #-}
-{-# LANGUAGE FunctionalDependencies   #-}
-{-# LANGUAGE GADTs                    #-}
-{-# LANGUAGE LambdaCase               #-}
-{-# LANGUAGE NumericUnderscores       #-}
-{-# LANGUAGE QuantifiedConstraints    #-}
-{-# LANGUAGE RankNTypes               #-}
-{-# LANGUAGE ScopedTypeVariables      #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TypeFamilies             #-}
-{-# LANGUAGE TypeOperators            #-}
-{-# LANGUAGE UndecidableInstances     #-}
+{-# LANGUAGE CPP                        #-}
+{-# LANGUAGE ConstraintKinds            #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE NumericUnderscores         #-}
+{-# LANGUAGE PolyKinds                  #-}
+{-# LANGUAGE QuantifiedConstraints      #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE StandaloneKindSignatures   #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 -- | The Ledger DB is responsible for the following tasks:
 --
@@ -123,6 +126,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , ExceededRollback (..)
   , Forker (..)
   , Forker'
+  , ForkerKey (..)
   , GetForkerError (..)
   , RangeQuery (..)
   , Statistics (..)
@@ -146,6 +150,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , AnnLedgerError (..)
   , AnnLedgerError'
     -- * Tracing
+  , FlavorImplSpecificTrace
   , TraceLedgerDBEvent (..)
     -- ** Replay events
   , ReplayGoal (..)
@@ -161,6 +166,9 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , PushStart (..)
   , Pushing (..)
   , TraceValidateEvent (..)
+    -- ** Forker events
+  , TraceForkerEvent (..)
+  , TraceForkerEventWithKey (..)
   ) where
 
 import           Codec.Serialise (Serialise)
@@ -378,6 +386,11 @@ data Forker m l blk = Forker {
   , forkerCommit :: !(STM m ())
   }
 
+-- | An identifier for a 'Forker'. See 'ldbForkers'.
+newtype ForkerKey = ForkerKey Word16
+  deriving stock (Show, Eq, Ord)
+  deriving newtype (Enum, NoThunks)
+
 type instance HeaderHash (Forker m l blk) = HeaderHash l
 
 type Forker' m blk = Forker m (ExtLedgerState blk) blk
@@ -557,12 +570,22 @@ type AnnLedgerError' m blk = AnnLedgerError m (ExtLedgerState blk) blk
   Tracing
 -------------------------------------------------------------------------------}
 
-data TraceLedgerDBEvent blk =
-      LedgerDBSnapshotEvent !(TraceSnapshotEvent blk)
-    | LedgerReplayStartEvent !(TraceReplayStartEvent blk)
+data family FlavorImplSpecificTrace (flavor :: k) (impl :: l)
+
+data TraceLedgerDBEvent flavor impl blk =
+      LedgerDBSnapshotEvent     !(TraceSnapshotEvent blk)
+    | LedgerReplayStartEvent    !(TraceReplayStartEvent blk)
     | LedgerReplayProgressEvent !(TraceReplayProgressEvent blk)
-    | LedgerDBForkerEvent  -- TODO(js_ldb)
-  deriving (Show, Eq, Generic)
+    | LedgerDBForkerEvent       !TraceForkerEventWithKey
+    | LedgerDBFlavorImplEvent   !(FlavorImplSpecificTrace flavor impl)
+  deriving (Generic)
+
+deriving instance
+  (StandardHash blk, Show (FlavorImplSpecificTrace flavor impl), InspectLedger blk)
+  => Show (TraceLedgerDBEvent flavor impl blk)
+deriving instance
+  (StandardHash blk, Eq (FlavorImplSpecificTrace flavor impl), InspectLedger blk)
+  => Eq (TraceLedgerDBEvent flavor impl blk)
 
 {-------------------------------------------------------------------------------
   Trace replay events
@@ -643,3 +666,23 @@ data TraceValidateEvent blk =
         !(Pushing blk)
         -- ^ Point which block we are about to push
   deriving (Show, Eq, Generic)
+
+{-------------------------------------------------------------------------------
+  Forker events
+-------------------------------------------------------------------------------}
+
+data TraceForkerEventWithKey =
+  TraceForkerEventWithKey ForkerKey TraceForkerEvent
+  deriving (Show, Eq)
+
+data TraceForkerEvent =
+    ForkerOpen
+  | ForkerClose
+  | ForkerReadTablesStart
+  | ForkerReadTablesEnd
+  | ForkerRangeReadTablesStart
+  | ForkerRangeReadTablesEnd
+  | ForkerReadStatistics
+  | ForkerPushStart
+  | ForkerPushEnd
+  deriving (Show, Eq)

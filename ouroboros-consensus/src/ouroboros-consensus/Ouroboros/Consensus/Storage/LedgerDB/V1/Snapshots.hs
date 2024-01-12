@@ -144,6 +144,7 @@ import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
@@ -231,7 +232,7 @@ loadSnapshot ::
      , LedgerSupportsProtocol blk
      , SingI impl
      )
-  => Tracer m BackingStoreTraceByBackend
+  => Tracer m (FlavorImplSpecificTrace FlavorV1 impl)
   -> BackingStoreArgs impl m
   -> CodecConfig blk
   -> SomeHasFS m

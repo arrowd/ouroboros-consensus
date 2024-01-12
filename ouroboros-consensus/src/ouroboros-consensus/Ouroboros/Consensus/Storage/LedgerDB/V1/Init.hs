@@ -12,7 +12,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Init (mkInitDb) where
 
 import           Control.Monad
 import           Control.Monad.Base
-import           Control.Tracer (nullTracer)
 import           Data.Foldable
 import           Data.Functor.Contravariant ((>$<))
 import qualified Data.Map.Strict as Map
@@ -66,8 +65,7 @@ mkInitDb ::
   -> ResolveBlock m blk
   -> InitDB m blk (DbChangelog' blk, BackingStore' m blk) (TestInternals m (ExtLedgerState blk) blk)
 mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
-  let bsTracer = nullTracer -- TODO @js
-  in InitDB {
+  InitDB {
     initFromGenesis = do
       st <- lgrGenesis
       let chlog = DbCh.empty (forgetLedgerTables st)
@@ -112,12 +110,14 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
                , ldbQueryBatchSize = lgrQueryBatchSize
                , ldbResolveBlock   = getBlock
                , ldbSecParam       = ledgerDbCfgSecParam lgrConfig
-               , ldbBsTracer       = bsTracer
+               , ldbFlavorSpecificTracer = bsTracer
                }
       h <- LDBHandle <$> newTVarIO (LedgerDBOpen env)
       pure $ implMkLedgerDb h
   }
   where
+    bsTracer = LedgerDBFlavorImplEvent >$< lgrTracer
+
     LedgerDbArgs {
         lgrHasFS
       , lgrTracer
@@ -130,7 +130,7 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
     V1Args flushFreq _ = flavorArgs
 
 implMkLedgerDb ::
-     forall m l blk.
+     forall impl m l blk.
      ( IOLike m
      , HasCallStack
      , IsLedger l
@@ -140,7 +140,7 @@ implMkLedgerDb ::
      , LedgerSupportsProtocol blk
      , MonadBase m m
      )
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> (LedgerDB m l blk, TestInternals m l blk)
 implMkLedgerDb h = (LedgerDB {
       getVolatileTip         = getEnvSTM  h implGetVolatileTip
@@ -160,25 +160,25 @@ implMkLedgerDb h = (LedgerDB {
 
 implGetVolatileTip ::
      (MonadSTM m, GetTip l)
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> STM m (l EmptyMK)
 implGetVolatileTip = fmap (current . anchorlessChangelog) . readTVar . ldbChangelog
 
 implGetImmutableTip ::
      MonadSTM m
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> STM m (l EmptyMK)
 implGetImmutableTip = fmap (anchor . anchorlessChangelog) . readTVar . ldbChangelog
 
 implGetPastLedgerState ::
      ( MonadSTM m , HasHeader blk, IsLedger l, StandardHash l
      , HasLedgerTables l, HeaderHash l ~ HeaderHash blk )
-  => LedgerDBEnv m l blk -> Point blk -> STM m (Maybe (l EmptyMK))
+  => LedgerDBEnv impl m l blk -> Point blk -> STM m (Maybe (l EmptyMK))
 implGetPastLedgerState env point = getPastLedgerAt point . anchorlessChangelog <$> readTVar (ldbChangelog env)
 
 implGetHeaderStateHistory ::
      (MonadSTM m, l ~ ExtLedgerState blk)
-  => LedgerDBEnv m l blk -> STM m (HeaderStateHistory blk)
+  => LedgerDBEnv impl m l blk -> STM m (HeaderStateHistory blk)
 implGetHeaderStateHistory env = toHeaderStateHistory . adcStates . anchorlessChangelog <$> readTVar (ldbChangelog env)
   where
     toHeaderStateHistory ::
@@ -189,15 +189,15 @@ implGetHeaderStateHistory env = toHeaderStateHistory . adcStates . anchorlessCha
         . AS.bimap headerState headerState
 
 implValidate ::
-     forall m l blk. (
+     forall impl m l blk. (
        IOLike m
      , LedgerSupportsProtocol blk
      , HasCallStack
      , l ~ ExtLedgerState blk
      , MonadBase m m
      )
-  => LedgerDBHandle m l blk
-  -> LedgerDBEnv m l blk
+  => LedgerDBHandle impl m l blk
+  -> LedgerDBEnv impl m l blk
   -> ResourceRegistry m
   -> (TraceValidateEvent blk -> m ())
   -> BlockCache blk
@@ -215,12 +215,12 @@ implValidate h ldbEnv =
     (newForkerAtFromTip h)
 
 
-implGetPrevApplied :: MonadSTM m => LedgerDBEnv m l blk -> STM m (Set (RealPoint blk))
+implGetPrevApplied :: MonadSTM m => LedgerDBEnv impl m l blk -> STM m (Set (RealPoint blk))
 implGetPrevApplied env = readTVar (ldbPrevApplied env)
 
 -- | Remove all points with a slot older than the given slot from the set of
 -- previously applied points.
-implGarbageCollect :: MonadSTM m => LedgerDBEnv m l blk -> SlotNo -> STM m ()
+implGarbageCollect :: MonadSTM m => LedgerDBEnv impl m l blk -> SlotNo -> STM m ()
 implGarbageCollect env slotNo = modifyTVar (ldbPrevApplied env) $
     Set.dropWhileAntitone ((< slotNo) . realPointSlot)
 
@@ -228,7 +228,7 @@ implTryTakeSnapshot ::
      ( l ~ ExtLedgerState blk
      , IOLike m, LedgerDbSerialiseConstraints blk, LedgerSupportsProtocol blk
      )
-  => LedgerDBEnv m l blk -> Maybe (Time, Time) -> Word64 -> m SnapCounters
+  => LedgerDBEnv impl m l blk -> Maybe (Time, Time) -> Word64 -> m SnapCounters
 implTryTakeSnapshot env mTime nrBlocks =
     if onDiskShouldTakeSnapshot (ldbSnapshotPolicy env) (uncurry (flip diffTime) <$> mTime) nrBlocks then do
       void $ withReadLock (ldbLock env) (takeSnapshot
@@ -250,7 +250,7 @@ implTryTakeSnapshot env mTime nrBlocks =
 -- store. Note this acquires a write lock on the backing store.
 implTryFlush ::
      (IOLike m, HasLedgerTables l, GetTip l)
-  => LedgerDBEnv m l blk -> m ()
+  => LedgerDBEnv impl m l blk -> m ()
 implTryFlush env = do
     ldb <- readTVarIO $ ldbChangelog env
     when (ldbShouldFlush env $ DbCh.flushableLength $ anchorlessChangelog ldb)
@@ -259,7 +259,7 @@ implTryFlush env = do
           (flushLedgerDB (ldbChangelog env) (ldbBackingStore env))
         )
 
-implCloseDB :: MonadSTM m => LedgerDBHandle m l blk -> m ()
+implCloseDB :: MonadSTM m => LedgerDBHandle impl m l blk -> m ()
 implCloseDB (LDBHandle varState) = do
     mbOpenEnv <- atomically $ readTVar varState >>= \case
       -- Idempotent

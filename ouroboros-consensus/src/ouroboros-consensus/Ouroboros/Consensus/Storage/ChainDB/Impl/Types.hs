@@ -4,12 +4,14 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
@@ -49,6 +51,7 @@ module Ouroboros.Consensus.Storage.ChainDB.Impl.Types (
   , newBlocksToAdd
     -- * Trace types
   , NewTipInfo (..)
+  , SomeChainDbTracer (..)
   , TraceAddBlockEvent (..)
   , TraceCopyToImmutableDBEvent (..)
   , TraceEvent (..)
@@ -63,6 +66,7 @@ module Ouroboros.Consensus.Storage.ChainDB.Impl.Types (
 
 import           Control.Tracer
 import           Data.Foldable (traverse_)
+import           Data.Kind
 import           Data.Map.Strict (Map)
 import           Data.Maybe.Strict (StrictMaybe (..))
 import           Data.Set (Set)
@@ -86,9 +90,9 @@ import           Ouroboros.Consensus.Storage.ChainDB.API.Types.InvalidBlockPunis
 import           Ouroboros.Consensus.Storage.ImmutableDB (ImmutableDB,
                      ImmutableDbSerialiseConstraints)
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
-import           Ouroboros.Consensus.Storage.LedgerDB (LedgerDB,
-                     LedgerDbSerialiseConstraints, TraceLedgerDBEvent,
-                     TraceValidateEvent)
+import           Ouroboros.Consensus.Storage.LedgerDB (LedgerDB, LedgerDbFlavor,
+                     LedgerDbSerialiseConstraints, LedgerDbStorageFlavor,
+                     TraceLedgerDBEvent, TraceValidateEvent)
 import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Storage.VolatileDB (VolatileDB,
                      VolatileDbSerialiseConstraints)
@@ -96,6 +100,7 @@ import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.Enclose (Enclosing, Enclosing' (..))
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.Orphans ()
 import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Ouroboros.Consensus.Util.STM (WithFingerprint)
 import           Ouroboros.Consensus.Util.TentativeState (TentativeState (..))
@@ -232,7 +237,7 @@ data ChainDbEnv m blk = CDB
     --
     -- Note that 'copyToImmutableDB' can still be executed concurrently with all
     -- others functions, just not with itself.
-  , cdbTracer          :: !(Tracer m (TraceEvent blk))
+  , cdbTracer          :: !(SomeChainDbTracer m blk)
   , cdbRegistry        :: !(ResourceRegistry m)
     -- ^ Resource registry that will be used to (re)start the background
     -- threads, see 'cdbBgThreads'.
@@ -502,7 +507,8 @@ closeBlocksToAdd (BlocksToAdd queue) = do
 -------------------------------------------------------------------------------}
 
 -- | Trace type for the various events of the ChainDB.
-data TraceEvent blk
+type TraceEvent :: LedgerDbFlavor -> LedgerDbStorageFlavor -> Type -> Type
+data TraceEvent flavor impl blk
   = TraceAddBlockEvent            (TraceAddBlockEvent          blk)
   | TraceFollowerEvent            (TraceFollowerEvent          blk)
   | TraceCopyToImmutableDBEvent   (TraceCopyToImmutableDBEvent blk)
@@ -510,22 +516,28 @@ data TraceEvent blk
   | TraceInitChainSelEvent        (TraceInitChainSelEvent      blk)
   | TraceOpenEvent                (TraceOpenEvent              blk)
   | TraceIteratorEvent            (TraceIteratorEvent          blk)
-  | TraceLedgerDBEvent            (TraceLedgerDBEvent          blk)
+  | TraceLedgerDBEvent            (TraceLedgerDBEvent          flavor impl blk)
   | TraceImmutableDBEvent         (ImmutableDB.TraceEvent      blk)
   | TraceVolatileDBEvent          (VolatileDB.TraceEvent       blk)
   deriving (Generic)
 
+data SomeChainDbTracer m blk where
+  SomeChainDbTracer :: Tracer m (TraceEvent flavor impl blk) -> SomeChainDbTracer m blk
+
+deriving via OnlyCheckWhnfNamed "SomeChainDbTracer" (SomeChainDbTracer m ev) instance NoThunks (SomeChainDbTracer m ev)
 
 deriving instance
   ( Eq (Header blk)
   , LedgerSupportsProtocol blk
   , InspectLedger blk
-  ) => Eq (TraceEvent blk)
+  , Eq (TraceLedgerDBEvent flavor impl blk)
+  ) => Eq (TraceEvent flavor impl blk)
 deriving instance
   ( Show (Header blk)
   , LedgerSupportsProtocol blk
   , InspectLedger blk
-  ) => Show (TraceEvent blk)
+  , Show (TraceLedgerDBEvent flavor impl blk)
+  ) => Show (TraceEvent flavor impl blk)
 
 data TraceOpenEvent blk =
     -- | The ChainDB started the process of opening.

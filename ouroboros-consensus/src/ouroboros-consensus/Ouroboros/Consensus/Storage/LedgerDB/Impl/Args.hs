@@ -1,13 +1,14 @@
-{-# LANGUAGE ConstraintKinds      #-}
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE NamedFieldPuns       #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds          #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE NamedFieldPuns           #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeFamilies             #-}
+{-# LANGUAGE UndecidableInstances     #-}
 -- |
 
 module Ouroboros.Consensus.Storage.LedgerDB.Impl.Args (
@@ -17,6 +18,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Args (
   ) where
 
 import           Control.Tracer
+import           Data.Kind
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Storage.LedgerDB.API
@@ -32,12 +34,13 @@ import           System.FS.API
 -------------------------------------------------------------------------------}
 
 -- | Arguments required to initialize a LedgerDB.
+type LedgerDbArgs :: (Type -> Type) -> LedgerDbFlavor -> LedgerDbStorageFlavor -> (Type -> Type) -> Type -> Type
 data LedgerDbArgs f flavor impl m blk = (SingI flavor, SingI impl) => LedgerDbArgs {
       lgrSnapshotPolicy :: HKD f SnapshotPolicy
     , lgrGenesis        :: HKD f (m (ExtLedgerState blk ValuesMK))
     , lgrHasFS          :: SomeHasFS m
     , lgrConfig         :: HKD f (LedgerDbCfg (ExtLedgerState blk))
-    , lgrTracer         :: Tracer m (TraceLedgerDBEvent blk)
+    , lgrTracer         :: Tracer m (TraceLedgerDBEvent flavor impl blk)
     , lgrQueryBatchSize :: QueryBatchSize
     , lgrFlavorArgs     :: LedgerDbFlavorArgs flavor impl m
     }

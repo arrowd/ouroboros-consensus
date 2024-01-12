@@ -17,6 +17,8 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Forker (
   , acquireAtTip
   ) where
 
+import           Control.Tracer
+import           Data.Functor.Contravariant ((>$<))
 import qualified Data.Map.Diff.Strict as Diff
 import qualified Data.Map.Strict as Map
 import           Data.Semigroup
@@ -48,7 +50,7 @@ newForkerAtTip ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> ResourceRegistry m
   -> m (Forker m l blk)
 newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
@@ -62,7 +64,7 @@ newForkerAtPoint ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> ResourceRegistry m
   -> Point blk
   -> m (Either GetForkerError (Forker m l blk))
@@ -75,7 +77,7 @@ newForkerAtFromTip ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> ResourceRegistry m
   -> Word64
   -> m (Either ExceededRollback (Forker m l blk))
@@ -85,7 +87,7 @@ newForkerAtFromTip h rr n = getEnv h $ \ldbEnv -> do
 -- | Close all open block and header 'Follower's.
 closeAllForkers ::
      MonadSTM m
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> m ()
 closeAllForkers ldbEnv = do
     forkerEnvs <- atomically $ do
@@ -111,7 +113,7 @@ type Resources m l =
 -- while doing so.
 acquireAtTip ::
      IOLike m
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> ResourceRegistry m
   -> ReadLocked m (Resources m l)
 acquireAtTip ldbEnv rr =
@@ -122,7 +124,7 @@ acquireAtTip ldbEnv rr =
 -- Acquire both a value handle and a db changelog at the requested point. Holds
 -- a read lock while doing so.
 acquireAtPoint ::
-     forall m l blk. (
+     forall impl m l blk. (
        HeaderHash l ~ HeaderHash blk
      , IOLike m
      , IsLedger l
@@ -130,7 +132,7 @@ acquireAtPoint ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> ResourceRegistry m
   -> Point blk
   -> ReadLocked m (Either GetForkerError (Resources m l))
@@ -146,12 +148,12 @@ acquireAtPoint ldbEnv rr pt =
 -- Acquire both a value handle and a db changelog at n blocks before the tip.
 -- Holds a read lock while doing so.
 acquireAtFromTip ::
-     forall m l blk. (
+     forall impl m l blk. (
        IOLike m
      , IsLedger l
      , HasLedgerTables l
      )
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> ResourceRegistry m
   -> Word64
   -> ReadLocked m (Either ExceededRollback (Resources m l))
@@ -168,7 +170,7 @@ acquireAtFromTip ldbEnv rr n =
 
 acquire ::
      IOLike m
-  => LedgerDBEnv m l blk
+  => LedgerDBEnv impl m l blk
   -> ResourceRegistry m
   -> AnchorlessDbChangelog l
   -> m (LedgerBackingStoreValueHandle m l)
@@ -195,21 +197,23 @@ newForker ::
      , NoThunks (l EmptyMK)
      , GetTip l
      )
-  => LedgerDBHandle m l blk
-  -> LedgerDBEnv m l blk
+  => LedgerDBHandle impl m l blk
+  -> LedgerDBEnv impl m l blk
   -> Resources m l
   -> m (Forker m l blk)
 newForker h ldbEnv (vh, dblog) = do
   dblogVar <- newTVarIO dblog
+  forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
   let forkerEnv = ForkerEnv {
       foeBackingStoreValueHandle = vh
     , foeChangelog               = dblogVar
     , foeSwitchVar               = ldbChangelog ldbEnv
     , foeSecurityParam           = ldbSecParam ldbEnv
     , foeQueryBatchSize          = ldbQueryBatchSize ldbEnv
+    , foeTracer                  = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
     }
-  forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
   atomically $ modifyTVar (ldbForkers ldbEnv) $ Map.insert forkerKey forkerEnv
+  traceWith (foeTracer forkerEnv) ForkerOpen
   pure $ mkForker h forkerKey
 
 mkForker ::
@@ -218,7 +222,7 @@ mkForker ::
      , HasLedgerTables l
      , GetTip l
      )
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> ForkerKey
   -> Forker m l blk
 mkForker h forkerKey = Forker {
@@ -234,7 +238,7 @@ mkForker h forkerKey = Forker {
 
 implForkerClose ::
      MonadSTM m
-  => LedgerDBHandle m l blk
+  => LedgerDBHandle impl m l blk
   -> ForkerKey
   -> m ()
 implForkerClose (LDBHandle varState) forkerKey = do
@@ -244,7 +248,9 @@ implForkerClose (LDBHandle varState) forkerKey = do
         stateTVar
             (ldbForkers ldbEnv)
             (Map.updateLookupWithKey (\_ _ -> Nothing) forkerKey)
-    whenJust envMay closeForkerEnv
+    whenJust envMay (\e -> do
+                        traceWith (foeTracer e) ForkerClose
+                        closeForkerEnv e)
 
 implForkerReadTables ::
      (MonadSTM m, HasLedgerTables l)
@@ -252,12 +258,15 @@ implForkerReadTables ::
   -> LedgerTables l KeysMK
   -> m (LedgerTables l ValuesMK)
 implForkerReadTables env ks = do
+    traceWith (foeTracer env) ForkerReadTablesStart
     ldb <- readTVarIO $ foeChangelog env
     let rew = rewindTableKeySets ldb ks
     unfwd <- readKeySetsWith lvh rew
     case forwardTableKeySets ldb unfwd of
         Left _err -> error "impossible!"
-        Right vs  -> pure vs
+        Right vs  -> do
+          traceWith (foeTracer env) ForkerReadTablesEnd
+          pure vs
   where
     lvh = foeBackingStoreValueHandle env
 
@@ -267,6 +276,7 @@ implForkerRangeReadTables ::
   -> API.RangeQuery l
   -> m (LedgerTables l ValuesMK)
 implForkerRangeReadTables env rq0 = do
+    traceWith (foeTracer env) ForkerRangeReadTablesStart
     ldb <- readTVarIO $ foeChangelog env
     let -- Get the differences without the keys that are greater or equal
         -- than the maximum previously seen key.
@@ -288,6 +298,7 @@ implForkerRangeReadTables env rq0 = do
         nrequested = 1 + max (BackingStore.rqCount rq) (1 + maxDeletes)
 
     values <- BackingStore.bsvhRangeRead lvh (rq{BackingStore.rqCount = nrequested})
+    traceWith (foeTracer env) ForkerRangeReadTablesEnd
     pure $ ltliftA2 (doFixupReadResult nrequested) diffs values
   where
     lvh = foeBackingStoreValueHandle env
@@ -391,6 +402,7 @@ implForkerReadStatistics ::
   => ForkerEnv m l blk
   -> m (Maybe API.Statistics)
 implForkerReadStatistics env = do
+    traceWith (foeTracer env) ForkerReadStatistics
     dblog <- readTVarIO $ foeChangelog env
     let seqNo = adcLastFlushedSlot dblog
     BackingStore.Statistics{sequenceNumber = seqNo', numEntries = n} <- bsvhStat lbsvh
@@ -419,11 +431,14 @@ implForkerPush ::
   => ForkerEnv m l blk
   -> l DiffMK
   -> m ()
-implForkerPush env newState = atomically $ do
-  db <- readTVar (foeChangelog env)
-  let db' = prune (foeSecurityParam env)
-          $ extend newState db
-  writeTVar (foeChangelog env) db'
+implForkerPush env newState = do
+  traceWith (foeTracer env) ForkerPushStart
+  atomically $ do
+    db <- readTVar (foeChangelog env)
+    let db' = prune (foeSecurityParam env)
+              $ extend newState db
+    writeTVar (foeChangelog env) db'
+  traceWith (foeTracer env) ForkerPushEnd
 
 implForkerCommit ::
      (MonadSTM m, GetTip l, HasLedgerTables l)

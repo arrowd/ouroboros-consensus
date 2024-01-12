@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs                     #-}
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE StandaloneKindSignatures  #-}
 
 module Ouroboros.Consensus.Storage.ChainDB.Impl.Args (
     ChainDbArgs (..)
@@ -32,6 +33,7 @@ module Ouroboros.Consensus.Storage.ChainDB.Impl.Args (
   ) where
 
 import           Control.Tracer (Tracer, nullTracer)
+import           Data.Kind
 import           Data.Time.Clock (DiffTime, secondsToDiffTime)
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Fragment.InFuture (CheckInFuture)
@@ -58,7 +60,7 @@ data ChainDbArgs f flavor impl m blk = ChainDbArgs {
     cdbImmDbArgs :: ImmutableDB.ImmutableDbArgs f m blk
   , cdbVolDbArgs :: VolatileDB.VolatileDbArgs f m blk
   , cdbLgrDbArgs :: LedgerDB.LedgerDbArgs f flavor impl m blk
-  , cdbsArgs     :: ChainDbSpecificArgs f m blk
+  , cdbsArgs     :: ChainDbSpecificArgs f flavor impl m blk
   }
 
 cdbHasFSImmutableDB ::
@@ -148,7 +150,7 @@ cdbTopLevelConfig = cdbsTopLevelConfig . cdbsArgs
 
 cdbTracer ::
      ChainDbArgs f flavor impl m blk
-  -> Tracer m (TraceEvent blk)
+  -> Tracer m (TraceEvent flavor impl blk)
 cdbTracer = cdbsTracer . cdbsArgs
 
 data SomeChainDbArgs f m blk where
@@ -159,7 +161,8 @@ data SomeChainDbArgs f m blk where
 
 -- | Arguments specific to the ChainDB, not to the ImmutableDB, VolatileDB, or
 -- LedgerDB.
-data ChainDbSpecificArgs f m blk = ChainDbSpecificArgs {
+type ChainDbSpecificArgs :: (Type -> Type)  -> LedgerDB.LedgerDbFlavor -> LedgerDB.LedgerDbStorageFlavor -> (Type -> Type) -> Type -> Type
+data ChainDbSpecificArgs f flavor impl m blk = ChainDbSpecificArgs {
       cdbsBlocksToAddSize :: Word
     , cdbsCheckInFuture   :: HKD f (CheckInFuture m blk)
     , cdbsGcDelay         :: DiffTime
@@ -173,7 +176,7 @@ data ChainDbSpecificArgs f m blk = ChainDbSpecificArgs {
       -- ^ Batch all scheduled GCs so that at most one GC happens every
       -- 'cdbsGcInterval'.
     , cdbsRegistry        :: HKD f (ResourceRegistry m)
-    , cdbsTracer          :: Tracer m (TraceEvent blk)
+    , cdbsTracer          :: Tracer m (TraceEvent flavor impl blk)
     , cdbsTopLevelConfig  :: HKD f (TopLevelConfig blk)
     }
 
@@ -199,7 +202,7 @@ data ChainDbSpecificArgs f m blk = ChainDbSpecificArgs {
 --   have, because of batching) < the number of blocks sync in @gcInterval@.
 --   E.g., when syncing at 1k-2k blocks/s, this means 10k-20k blocks. During
 --   normal operation, we receive 1 block/20s, meaning at most 1 block.
-defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs m blk
+defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs flavor impl m blk
 defaultSpecificArgs = ChainDbSpecificArgs {
       cdbsBlocksToAddSize = 10
     , cdbsCheckInFuture   = NoDefault

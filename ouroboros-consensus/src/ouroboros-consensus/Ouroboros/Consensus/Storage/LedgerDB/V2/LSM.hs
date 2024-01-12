@@ -1,6 +1,9 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE EmptyDataDeriving #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE TypeFamilies      #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints -Wno-orphans #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.LSM (
     loadSnapshot
@@ -14,6 +17,7 @@ import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables
 import           Ouroboros.Consensus.Storage.LedgerDB.API
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
 import           Ouroboros.Consensus.Util.IOLike
 import           System.FS.API
@@ -45,3 +49,9 @@ takeSnapshot ::
   -> StateRef m (ExtLedgerState blk)
   -> m (Maybe (DiskSnapshot, RealPoint blk))
 takeSnapshot = undefined
+
+{-------------------------------------------------------------------------------
+  Traces
+-------------------------------------------------------------------------------}
+
+data instance FlavorImplSpecificTrace FlavorV2 OnDisk deriving (Eq, Show)

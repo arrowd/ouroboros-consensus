@@ -45,6 +45,7 @@ import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -145,13 +146,13 @@ data InitDB m blk db internal = InitDB {
 -- obtained in this way will (hopefully) share much of their memory footprint
 -- with their predecessors.
 initialize ::
-     forall m blk db internal.
+     forall m blk (flavor :: LedgerDbFlavor) (impl :: LedgerDbStorageFlavor) db internal.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
      , HasCallStack
      )
-  => Tracer m (TraceLedgerDBEvent blk)
+  => Tracer m (TraceLedgerDBEvent flavor impl blk)
   -> SomeHasFS m
   -> LedgerDbCfg (ExtLedgerState blk)
   -> StreamAPI m blk blk
@@ -228,7 +229,7 @@ initialize tracer
 
     replayTracer = decorateReplayTracerWithGoal
                                        replayGoal
-                                       (LedgerReplayProgressEvent  >$< tracer)
+                                       (LedgerReplayProgressEvent >$< tracer)
 
 -- | Replay all blocks in the Immutable database using the 'StreamAPI' provided
 -- on top of the given @LedgerDB' blk@.
@@ -307,7 +308,7 @@ openDB args initDb stream replayGoal =
 
 -- | Open the ledger DB and expose internals for testing purposes
 openDBInternal ::
-  forall m l blk flavor db impl internal.
+  forall m l blk (flavor :: LedgerDbFlavor) db (impl :: LedgerDbStorageFlavor) internal.
   ( IOLike m
   , LedgerSupportsProtocol blk
   , InspectLedger blk

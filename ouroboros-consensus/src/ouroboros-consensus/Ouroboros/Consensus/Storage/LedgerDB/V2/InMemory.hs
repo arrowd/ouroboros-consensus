@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
+{-# LANGUAGE EmptyDataDeriving          #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GADTs                      #-}
@@ -12,9 +13,12 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
 -- |
+
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.InMemory (
     -- * LedgerTablesHandle
@@ -44,6 +48,7 @@ import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables.Utils
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
 import           Ouroboros.Consensus.Util.IOLike
 import           Prelude hiding (read)
@@ -181,3 +186,9 @@ loadSnapshot ccfg fs@(SomeHasFS hasFS) ds = do
                 unless (BSL.null extra) $ error "Trailing bytes in snapshot"
                 pure x
           Right . (,pt) <$> empty extLedgerSt values newInMemoryLedgerTablesHandle
+
+{-------------------------------------------------------------------------------
+  Traces
+-------------------------------------------------------------------------------}
+
+data instance FlavorImplSpecificTrace FlavorV2 InMemory deriving (Eq, Show)

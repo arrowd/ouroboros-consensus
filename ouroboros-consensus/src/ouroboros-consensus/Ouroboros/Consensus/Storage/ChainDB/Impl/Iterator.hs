@@ -212,14 +212,16 @@ data IteratorEnv m blk = IteratorEnv {
     }
 
 -- | Obtain an 'IteratorEnv' from a 'ChainDbEnv'.
-fromChainDbEnv :: ChainDbEnv m blk -> IteratorEnv m blk
+fromChainDbEnv :: forall m blk. ChainDbEnv m blk -> IteratorEnv m blk
 fromChainDbEnv CDB{..} = IteratorEnv {
       itImmutableDB     = cdbImmutableDB
     , itVolatileDB      = cdbVolatileDB
     , itIterators       = cdbIterators
     , itNextIteratorKey = cdbNextIteratorKey
-    , itTracer          = contramap TraceIteratorEvent cdbTracer
+    , itTracer          = trcr
     }
+    where
+      SomeChainDbTracer (contramap TraceIteratorEvent -> trcr) = cdbTracer
 
 -- | See 'stream'.
 newIterator ::

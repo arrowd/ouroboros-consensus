@@ -7,6 +7,7 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE ViewPatterns        #-}
 
 -- | Background tasks:
 --
@@ -172,7 +173,8 @@ copyToImmutableDB CDB{..} = withCopyLock $ do
     atomically $ ImmutableDB.getTipSlot cdbImmutableDB
   where
     SecurityParam k = configSecurityParam cdbTopLevelConfig
-    trace = traceWith (contramap TraceCopyToImmutableDBEvent cdbTracer)
+    SomeChainDbTracer (contramap TraceCopyToImmutableDBEvent -> trcr) = cdbTracer
+    trace = traceWith trcr
 
     -- | Remove the header corresponding to the given point from the beginning
     -- of the current chain fragment.
@@ -271,11 +273,13 @@ copyAndSnapshotRunner cdb@CDB{..} gcSchedule replayed = do
 
       loop =<< LedgerDB.tryTakeSnapshot cdbLedgerDB ((,now) <$> prevSnapshotTime) ntBlocksSinceLastSnap'
 
+    SomeChainDbTracer (contramap TraceGCEvent -> trcr) = cdbTracer
+
     scheduleGC' :: WithOrigin SlotNo -> m ()
     scheduleGC' Origin             = return ()
     scheduleGC' (NotOrigin slotNo) =
         scheduleGC
-          (contramap TraceGCEvent cdbTracer)
+          trcr
           slotNo
           GcParams {
               gcDelay    = cdbGcDelay
@@ -308,7 +312,8 @@ garbageCollect CDB{..} slotNo = do
     atomically $ do
       LedgerDB.garbageCollect cdbLedgerDB slotNo
       modifyTVar cdbInvalid $ fmap $ Map.filter ((>= slotNo) . invalidBlockSlotNo)
-    traceWith cdbTracer $ TraceGCEvent $ PerformedGC slotNo
+    let SomeChainDbTracer (contramap (TraceGCEvent . PerformedGC) -> trcr) = cdbTracer
+    traceWith trcr slotNo
 
 {-------------------------------------------------------------------------------
   Scheduling garbage collections
@@ -508,8 +513,10 @@ addBlockRunner
      )
   => ChainDbEnv m blk
   -> m Void
-addBlockRunner cdb@CDB{..} = forever $ do
-    let trace = traceWith cdbTracer . TraceAddBlockEvent
+addBlockRunner cdb@CDB{..} =
+  let SomeChainDbTracer (contramap TraceAddBlockEvent -> trcr) = cdbTracer
+  in forever $ do
+    let trace = traceWith trcr
     trace $ PoppedBlockFromQueue RisingEdge
     -- if the `addBlockSync` does not complete because it was killed by an async
     -- exception (or it errored), notify the blocked thread

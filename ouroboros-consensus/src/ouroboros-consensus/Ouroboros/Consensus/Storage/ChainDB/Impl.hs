@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns        #-}
 
 module Ouroboros.Consensus.Storage.ChainDB.Impl (
     -- * Initialization
@@ -197,7 +198,7 @@ openDBInternal (Args.SomeChainDbArgs args) launchBgTasks = runWithTempRegistry $
                     , cdbNextIteratorKey = varNextIteratorKey
                     , cdbNextFollowerKey = varNextFollowerKey
                     , cdbCopyLock        = varCopyLock
-                    , cdbTracer          = tracer
+                    , cdbTracer          = SomeChainDbTracer tracer
                     , cdbRegistry        = Args.cdbRegistry args
                     , cdbGcDelay         = Args.cdbGcDelay args
                     , cdbGcInterval      = Args.cdbGcInterval args
@@ -307,7 +308,8 @@ closeDB (CDBHandle varState) = do
 
       chain <- atomically $ readTVar cdbChain
 
-      traceWith cdbTracer $ TraceOpenEvent $ ClosedDB
+      let SomeChainDbTracer (contramap TraceOpenEvent -> trcr) = cdbTracer
+      traceWith trcr $ ClosedDB
         (castPoint $ AF.anchorPoint chain)
         (castPoint $ AF.headPoint chain)
 
