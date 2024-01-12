@@ -7,7 +7,6 @@ module Ouroboros.Consensus.Storage.LedgerDB (
     -- * API
     module Ouroboros.Consensus.Storage.LedgerDB.API
   , module Ouroboros.Consensus.Storage.LedgerDB.API.Config
-  , module Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
     -- * Impl
   , LedgerDbFlavor (..)
   , LedgerDbStorageFlavor (..)
@@ -22,7 +21,6 @@ import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.ImmutableDB.Impl.Stream
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
-import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init hiding (openDB)

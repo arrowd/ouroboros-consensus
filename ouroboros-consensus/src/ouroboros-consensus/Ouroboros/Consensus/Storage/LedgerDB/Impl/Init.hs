@@ -43,9 +43,9 @@ import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.ImmutableDB.Impl.Stream
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
-import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -146,20 +146,22 @@ data InitDB m blk db internal = InitDB {
 -- obtained in this way will (hopefully) share much of their memory footprint
 -- with their predecessors.
 initialize ::
-     forall m blk (flavor :: LedgerDbFlavor) (impl :: LedgerDbStorageFlavor) db internal.
+     forall m blk db internal.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
      , HasCallStack
      )
-  => Tracer m (TraceLedgerDBEvent flavor impl blk)
+  => Tracer m (TraceReplayEvent blk)
+  -> Tracer m (TraceSnapshotEvent blk)
   -> SomeHasFS m
   -> LedgerDbCfg (ExtLedgerState blk)
   -> StreamAPI m blk blk
   -> Point blk
   -> InitDB m blk db internal
   -> m (InitLog blk, db, Word64)
-initialize tracer
+initialize replayTracer
+           snapTracer
            hasFS
            cfg
            stream
@@ -177,11 +179,11 @@ initialize tracer
                         )
     tryNewestFirst acc [] = do
       -- We're out of snapshots. Start at genesis
-      traceWith (LedgerReplayStartEvent >$< tracer) ReplayFromGenesis
-      let replayTracer' = decorateReplayTracerWithStart (Point Origin) replayTracer
+      traceWith (TraceReplayStartEvent >$< replayTracer) ReplayFromGenesis
+      let replayTracer'' = decorateReplayTracerWithStart (Point Origin) replayTracer'
       initDb <- initFromGenesis
       eDB <- runExceptT $ replayStartingWith
-                            replayTracer'
+                            replayTracer''
                             cfg
                             stream
                             initDb
@@ -204,15 +206,15 @@ initialize tracer
         Left err -> do
           when (diskSnapshotIsTemporary s || err == InitFailureGenesis) $
             deleteSnapshot hasFS s
-          traceWith (LedgerDBSnapshotEvent >$< tracer) . InvalidSnapshot s $ err
+          traceWith snapTracer . InvalidSnapshot s $ err
           tryNewestFirst (acc . InitFailure s err) ss
         Right (initDb, pt) -> do
           let pt' = realPointToPoint pt
-          traceWith (LedgerReplayStartEvent >$< tracer) (ReplayFromSnapshot s (ReplayStart pt'))
-          let replayTracer' = decorateReplayTracerWithStart pt' replayTracer
+          traceWith (TraceReplayStartEvent >$< replayTracer) (ReplayFromSnapshot s (ReplayStart pt'))
+          let replayTracer'' = decorateReplayTracerWithStart pt' replayTracer'
           eDB <- runExceptT
                    $ replayStartingWith
-                       replayTracer'
+                       replayTracer''
                        cfg
                        stream
                        initDb
@@ -220,16 +222,16 @@ initialize tracer
                        dbIface
           case eDB of
             Left err -> do
-              traceWith (LedgerDBSnapshotEvent >$< tracer) . InvalidSnapshot s $ err
+              traceWith snapTracer . InvalidSnapshot s $ err
               when (diskSnapshotIsTemporary s) $ deleteSnapshot hasFS s
               closeDb initDb
               tryNewestFirst (acc . InitFailure s err) ss
             Right (db, replayed) -> do
               return (acc (InitFromSnapshot s pt), db, replayed)
 
-    replayTracer = decorateReplayTracerWithGoal
+    replayTracer' = decorateReplayTracerWithGoal
                                        replayGoal
-                                       (LedgerReplayProgressEvent >$< tracer)
+                                       (TraceReplayProgressEvent >$< replayTracer)
 
 -- | Replay all blocks in the Immutable database using the 'StreamAPI' provided
 -- on top of the given @LedgerDB' blk@.
@@ -324,7 +326,8 @@ openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream repla
     createDirectoryIfMissing fs True (mkFsPath [])
     (_initLog, db, replayCounter) <-
           initialize
-            lgrTracer
+            replayTracer
+            snapTracer
             lgrHasFS
             lgrConfig
             stream
@@ -339,3 +342,6 @@ openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream repla
       , lgrConfig
       , lgrTracer
       } = args
+
+    replayTracer = LedgerReplayEvent >$< lgrTracer
+    snapTracer = LedgerDBSnapshotEvent >$< lgrTracer

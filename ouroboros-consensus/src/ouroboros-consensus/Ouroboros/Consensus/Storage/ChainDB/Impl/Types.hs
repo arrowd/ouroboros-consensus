@@ -92,7 +92,9 @@ import           Ouroboros.Consensus.Storage.ImmutableDB (ImmutableDB,
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import           Ouroboros.Consensus.Storage.LedgerDB (LedgerDB, LedgerDbFlavor,
                      LedgerDbSerialiseConstraints, LedgerDbStorageFlavor,
-                     TraceLedgerDBEvent, TraceValidateEvent)
+                     TraceValidateEvent)
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
+                     (TraceLedgerDBEvent)
 import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Storage.VolatileDB (VolatileDB,
                      VolatileDbSerialiseConstraints)

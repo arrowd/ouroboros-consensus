@@ -141,26 +141,13 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , ReadOnlyForker'
   , readOnlyForker
     -- * Snapshots
-  , DiskSnapshot (..)
   , SnapCounters (..)
-  , SnapshotFailure (..)
     -- * Validation
   , ValidateResult (..)
     -- ** Annotated ledger errors
   , AnnLedgerError (..)
   , AnnLedgerError'
     -- * Tracing
-  , FlavorImplSpecificTrace
-  , TraceLedgerDBEvent (..)
-    -- ** Replay events
-  , ReplayGoal (..)
-  , ReplayStart (..)
-  , TraceReplayProgressEvent (..)
-  , TraceReplayStartEvent (..)
-  , decorateReplayTracerWithGoal
-  , decorateReplayTracerWithStart
-    -- ** Snapshot events
-  , TraceSnapshotEvent (..)
     -- ** Validation events
   , PushGoal (..)
   , PushStart (..)
@@ -174,8 +161,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
 import           Codec.Serialise (Serialise)
 import           Control.Monad (forM)
 import           Control.Monad.Class.MonadTime.SI
-import           Control.Tracer
-import           Data.Functor.Contravariant
 import           Data.Kind
 import           Data.Set (Set)
 import           Data.Word
@@ -186,10 +171,8 @@ import           Ouroboros.Consensus.HeaderStateHistory
 import           Ouroboros.Consensus.HeaderValidation
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
-import           Ouroboros.Consensus.Ledger.Inspect
 import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.BlockCache
-import           Ouroboros.Consensus.Storage.LedgerDB.API.Snapshots
 import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -565,81 +548,6 @@ data AnnLedgerError m l blk = AnnLedgerError {
     }
 
 type AnnLedgerError' m blk = AnnLedgerError m (ExtLedgerState blk) blk
-
-{-------------------------------------------------------------------------------
-  Tracing
--------------------------------------------------------------------------------}
-
-data family FlavorImplSpecificTrace (flavor :: k) (impl :: l)
-
-data TraceLedgerDBEvent flavor impl blk =
-      LedgerDBSnapshotEvent     !(TraceSnapshotEvent blk)
-    | LedgerReplayStartEvent    !(TraceReplayStartEvent blk)
-    | LedgerReplayProgressEvent !(TraceReplayProgressEvent blk)
-    | LedgerDBForkerEvent       !TraceForkerEventWithKey
-    | LedgerDBFlavorImplEvent   !(FlavorImplSpecificTrace flavor impl)
-  deriving (Generic)
-
-deriving instance
-  (StandardHash blk, Show (FlavorImplSpecificTrace flavor impl), InspectLedger blk)
-  => Show (TraceLedgerDBEvent flavor impl blk)
-deriving instance
-  (StandardHash blk, Eq (FlavorImplSpecificTrace flavor impl), InspectLedger blk)
-  => Eq (TraceLedgerDBEvent flavor impl blk)
-
-{-------------------------------------------------------------------------------
-  Trace replay events
--------------------------------------------------------------------------------}
-
--- | Add the tip of the Immutable DB to the trace event
---
--- Between the tip of the immutable DB and the point of the starting block,
--- the node could (if it so desired) easily compute a "percentage complete".
-decorateReplayTracerWithGoal
-  :: Point blk -- ^ Tip of the ImmutableDB
-  -> Tracer m (TraceReplayProgressEvent blk)
-  -> Tracer m (ReplayGoal blk -> TraceReplayProgressEvent blk)
-decorateReplayTracerWithGoal immTip = (($ ReplayGoal immTip) >$<)
-
--- | Add the block at which a replay started.
---
--- This allows to compute a "percentage complete" when tracing the events.
-decorateReplayTracerWithStart
-  :: Point blk -- ^ Starting point of the replay
-  -> Tracer m (ReplayGoal blk -> TraceReplayProgressEvent blk)
-  -> Tracer m (ReplayStart blk -> ReplayGoal blk -> TraceReplayProgressEvent blk)
-decorateReplayTracerWithStart start = (($ ReplayStart start) >$<)
-
--- | Which point the replay started from
-newtype ReplayStart blk = ReplayStart (Point blk) deriving (Eq, Show)
-
--- | Which point the replay is expected to end at
-newtype ReplayGoal blk = ReplayGoal (Point blk) deriving (Eq, Show)
-
--- | Events traced while replaying blocks against the ledger to bring it up to
--- date w.r.t. the tip of the ImmutableDB during initialisation. As this
--- process takes a while, we trace events to inform higher layers of our
--- progress.
-data TraceReplayStartEvent blk
-  = -- | There were no LedgerDB snapshots on disk, so we're replaying all blocks
-    -- starting from Genesis against the initial ledger.
-    ReplayFromGenesis
-    -- | There was a LedgerDB snapshot on disk corresponding to the given tip.
-    -- We're replaying more recent blocks against it.
-  | ReplayFromSnapshot
-        DiskSnapshot
-        (ReplayStart blk) -- ^ the block at which this replay started
-  deriving (Generic, Eq, Show)
-
--- | We replayed the given block (reference) on the genesis snapshot during
--- the initialisation of the LedgerDB. Used during ImmutableDB replay.
-data TraceReplayProgressEvent blk =
-  ReplayedBlock
-    (RealPoint blk)   -- ^ the block being replayed
-    [LedgerEvent blk]
-    (ReplayStart blk) -- ^ the block at which this replay started
-    (ReplayGoal blk)  -- ^ the block at the tip of the ImmutableDB
-  deriving (Generic, Eq, Show)
 
 {-------------------------------------------------------------------------------
   Trace validation events

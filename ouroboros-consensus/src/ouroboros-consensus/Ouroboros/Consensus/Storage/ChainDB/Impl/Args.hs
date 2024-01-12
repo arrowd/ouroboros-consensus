@@ -44,8 +44,8 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB as LedgerDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Args as LedgerDB
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Args as LegerDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors as LedgerDB
+import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots as LedgerDB
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.ResourceRegistry (ResourceRegistry)
@@ -116,7 +116,7 @@ cdbSnapshotPolicy = LedgerDB.lgrSnapshotPolicy . cdbLgrDbArgs
 cdbGenesis ::
      ChainDbArgs f flavor impl m blk
   -> HKD f (m (ExtLedgerState blk ValuesMK))
-cdbGenesis = LegerDB.lgrGenesis . cdbLgrDbArgs
+cdbGenesis = LedgerDB.lgrGenesis . cdbLgrDbArgs
 
 cdbCheckInFuture ::
      ChainDbArgs f flavor impl m blk
