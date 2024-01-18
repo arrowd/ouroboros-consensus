@@ -232,7 +232,7 @@ loadSnapshot ::
      , LedgerSupportsProtocol blk
      , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace FlavorV1 impl)
+  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
   -> BackingStoreArgs impl m
   -> CodecConfig blk
   -> SomeHasFS m

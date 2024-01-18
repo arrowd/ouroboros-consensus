@@ -63,8 +63,6 @@ import           Ouroboros.Network.AnchoredSeq hiding (anchor, last, map,
                      rollback)
 import qualified Ouroboros.Network.AnchoredSeq as AS hiding (map)
 import           Prelude hiding (read)
-import           System.FS.API
-import           System.FS.API.Types
 
 {-------------------------------------------------------------------------------
   LedgerTablesHandles
@@ -74,9 +72,9 @@ data LedgerTablesHandle m l = IOLike m => LedgerTablesHandle {
     close       :: !(m ())
   , duplicate   :: !(m (LedgerTablesHandle m l))
   , read        :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
-  , readAll     :: !(m (LedgerTables l ValuesMK))
+  , readRange   :: !((Key l, Key l) -> m (LedgerTables l ValuesMK))
   , write       :: !(LedgerTables l DiffMK -> m ())
-  , writeToDisk :: !(SomeHasFS m -> FsPath -> m ())
+  , writeToDisk :: !(String -> m ())
   , tablesSize  :: !(m Int)
   }
   deriving NoThunks via OnlyCheckWhnfNamed "LedgerTablesHandle" (LedgerTablesHandle m l)

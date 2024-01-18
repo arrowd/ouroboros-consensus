@@ -6,6 +6,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V1.Init (mkInitDb) where
@@ -53,6 +54,9 @@ import           Ouroboros.Consensus.Util.Singletons
 import           Ouroboros.Network.AnchoredSeq (AnchoredSeq)
 import qualified Ouroboros.Network.AnchoredSeq as AS
 
+type instance Database FlavorV1 m blk = (DbChangelog' blk, BackingStore' m blk)
+type instance Internal FlavorV1 m blk = TestInternals m (ExtLedgerState blk) blk
+
 mkInitDb ::
   forall m blk impl.
   ( LedgerSupportsProtocol blk
@@ -61,9 +65,9 @@ mkInitDb ::
   , MonadBase m m
   , SingI impl
   )
-  => Complete LedgerDbArgs FlavorV1 impl m blk
+  => Complete LedgerDbArgs '(FlavorV1, impl) m blk
   -> ResolveBlock m blk
-  -> InitDB m blk (DbChangelog' blk, BackingStore' m blk) (TestInternals m (ExtLedgerState blk) blk)
+  -> InitDB FlavorV1 m blk
 mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
   InitDB {
     initFromGenesis = do
@@ -74,7 +78,7 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
       pure (chlog, backingStore)
   , initFromSnapshot = loadSnapshot bsTracer (v1BackendArgs flavorArgs) (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS
   , closeDb = \(_, backingStore) -> bsClose backingStore
-  , initApplyBlock = \cfg blk (chlog, bstore) -> do
+  , initReapplyBlock = \cfg blk (chlog, bstore) -> do
       !chlog' <- onChangelogM (applyThenPush cfg blk (readKeySets bstore)) chlog
       -- It's OK to flush without a lock here, since the `LedgerDB` has not
       -- finishined initializing: only this thread has access to the backing
@@ -102,15 +106,14 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
                , ldbPrevApplied    = prevApplied
                , ldbForkers        = forkers
                , ldbNextForkerKey  = nextForkerKey
-               , ldbSnapshotPolicy = lgrSnapshotPolicy
+               , ldbSnapshotPolicy = defaultSnapshotPolicy (ledgerDbCfgSecParam lgrConfig) lgrSnapshotInterval
                , ldbTracer         = lgrTracer
                , ldbCfg            = lgrConfig
                , ldbHasFS          = lgrHasFS
                , ldbShouldFlush    = defaultShouldFlush flushFreq
-               , ldbQueryBatchSize = lgrQueryBatchSize
+               , ldbQueryBatchSize = queryBatchSize
                , ldbResolveBlock   = getBlock
                , ldbSecParam       = ledgerDbCfgSecParam lgrConfig
-               , ldbFlavorSpecificTracer = bsTracer
                }
       h <- LDBHandle <$> newTVarIO (LedgerDBOpen env)
       pure $ implMkLedgerDb h
@@ -121,13 +124,12 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = flavorArgs }) getBlock =
     LedgerDbArgs {
         lgrHasFS
       , lgrTracer
-      , lgrSnapshotPolicy
+      , lgrSnapshotInterval
       , lgrConfig
       , lgrGenesis
-      , lgrQueryBatchSize
       } = args
 
-    V1Args flushFreq _ = flavorArgs
+    V1Args flushFreq queryBatchSize _ = flavorArgs
 
 implMkLedgerDb ::
      forall impl m l blk.

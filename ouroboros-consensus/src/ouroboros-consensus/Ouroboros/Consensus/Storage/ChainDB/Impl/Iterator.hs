@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -212,7 +211,7 @@ data IteratorEnv m blk = IteratorEnv {
     }
 
 -- | Obtain an 'IteratorEnv' from a 'ChainDbEnv'.
-fromChainDbEnv :: forall m blk. ChainDbEnv m blk -> IteratorEnv m blk
+fromChainDbEnv :: ChainDbEnv m blk -> IteratorEnv m blk
 fromChainDbEnv CDB{..} = IteratorEnv {
       itImmutableDB     = cdbImmutableDB
     , itVolatileDB      = cdbVolatileDB

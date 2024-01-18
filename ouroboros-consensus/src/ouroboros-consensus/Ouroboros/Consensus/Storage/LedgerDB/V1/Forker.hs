@@ -32,6 +32,7 @@ import           Ouroboros.Consensus.Ledger.Tables.DiffSeq (numDeletes,
 import qualified Ouroboros.Consensus.Ledger.Tables.DiffSeq as DS
 import           Ouroboros.Consensus.Storage.LedgerDB.API as API
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API as BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Common
@@ -276,109 +277,109 @@ implForkerRangeReadTables ::
   => ForkerEnv m l blk
   -> API.RangeQuery l
   -> m (LedgerTables l ValuesMK)
-implForkerRangeReadTables env rq0 = do
-    traceWith (foeTracer env) ForkerRangeReadTablesStart
-    ldb <- readTVarIO $ foeChangelog env
-    let -- Get the differences without the keys that are greater or equal
-        -- than the maximum previously seen key.
-        diffs =
-          maybe
-            id
-            (ltliftA2 doDropLTE)
-            (BackingStore.rqPrev rq)
-            $ ltmap prj
-            $ adcDiffs ldb
-            -- (1) Ensure that we never delete everything read from disk (ie
-            --     if our result is non-empty then it contains something read
-            --     from disk).
-            --
-            -- (2) Also, read one additional key, which we will not include in
-            --     the result but need in order to know which in-memory
-            --     insertions to include.
-        maxDeletes = ltcollapse $ ltmap (K2 . numDeletesDiffMK) diffs
-        nrequested = 1 + max (BackingStore.rqCount rq) (1 + maxDeletes)
+implForkerRangeReadTables env rq0 = undefined -- TODO (js) -- do
+  --   traceWith (foeTracer env) ForkerRangeReadTablesStart
+  --   ldb <- readTVarIO $ foeChangelog env
+  --   let -- Get the differences without the keys that are greater or equal
+  --       -- than the maximum previously seen key.
+  --       diffs =
+  --         maybe
+  --           id
+  --           (ltliftA2 doDropLTE)
+  --           (BackingStore.rqPrev rq)
+  --           $ ltmap prj
+  --           $ adcDiffs ldb
+  --           -- (1) Ensure that we never delete everything read from disk (ie
+  --           --     if our result is non-empty then it contains something read
+  --           --     from disk).
+  --           --
+  --           -- (2) Also, read one additional key, which we will not include in
+  --           --     the result but need in order to know which in-memory
+  --           --     insertions to include.
+  --       maxDeletes = ltcollapse $ ltmap (K2 . numDeletesDiffMK) diffs
+  --       nrequested = 1 + max (BackingStore.rqCount rq) (1 + maxDeletes)
 
-    values <- BackingStore.bsvhRangeRead lvh (rq{BackingStore.rqCount = nrequested})
-    traceWith (foeTracer env) ForkerRangeReadTablesEnd
-    pure $ ltliftA2 (doFixupReadResult nrequested) diffs values
-  where
-    lvh = foeBackingStoreValueHandle env
+  --   values <- BackingStore.bsvhRangeRead lvh (rq{BackingStore.rqCount = nrequested})
+  --   traceWith (foeTracer env) ForkerRangeReadTablesEnd
+  --   pure $ ltliftA2 (doFixupReadResult nrequested) diffs values
+  -- where
+  --   lvh = foeBackingStoreValueHandle env
 
-    rq = BackingStore.RangeQuery (API.rqPrev rq0) (API.rqCount rq0)
+  --   rq = BackingStore.RangeQuery (API.rqPrev rq0) (API.rqCount rq0)
 
-    prj ::
-         (Ord k, Eq v)
-      => SeqDiffMK k v
-      -> DiffMK k v
-    prj (SeqDiffMK sq) = DiffMK (DS.cumulativeDiff sq)
+  --   prj ::
+  --        (Ord k, Eq v)
+  --     => SeqDiffMK k v
+  --     -> DiffMK k v
+  --   prj (SeqDiffMK sq) = DiffMK (DS.cumulativeDiff sq)
 
-    -- Remove all diff elements that are <= to the greatest given key
-    doDropLTE ::
-         Ord k
-      => KeysMK k v
-      -> DiffMK k v
-      -> DiffMK k v
-    doDropLTE (KeysMK ks) (DiffMK ds) =
-        DiffMK
-      $ case Set.lookupMax ks of
-          Nothing -> ds
-          Just k  -> Diff.filterOnlyKey (> k) ds
+  --   -- Remove all diff elements that are <= to the greatest given key
+  --   doDropLTE ::
+  --        Ord k
+  --     => KeysMK k v
+  --     -> DiffMK k v
+  --     -> DiffMK k v
+  --   doDropLTE (KeysMK ks) (DiffMK ds) =
+  --       DiffMK
+  --     $ case Set.lookupMax ks of
+  --         Nothing -> ds
+  --         Just k  -> Diff.filterOnlyKey (> k) ds
 
-    -- NOTE: this is counting the deletions wrt disk.
-    numDeletesDiffMK :: DiffMK k v -> Int
-    numDeletesDiffMK (DiffMK d) =
-      getSum $ Diff.foldMapDelta (Sum . oneIfDel) d
-      where
-        oneIfDel x = case x of
-          Diff.Delete _ -> 1
-          Diff.Insert _ -> 0
+  --   -- NOTE: this is counting the deletions wrt disk.
+  --   numDeletesDiffMK :: DiffMK k v -> Int
+  --   numDeletesDiffMK (DiffMK d) =
+  --     getSum $ Diff.foldMapDelta (Sum . oneIfDel) d
+  --     where
+  --       oneIfDel x = case x of
+  --         Diff.Delete _ -> 1
+  --         Diff.Insert _ -> 0
 
-    -- INVARIANT: nrequested > 0
-    --
-    -- (1) if we reached the end of the store, then simply yield the given diff
-    --     applied to the given values
-    -- (2) otherwise, the readset must be non-empty, since 'rqCount' is positive
-    -- (3) remove the greatest read key
-    -- (4) remove all diff elements that are >= the greatest read key
-    -- (5) apply the remaining diff
-    -- (6) (the greatest read key will be the first fetched if the yield of this
-    --     result is next passed as 'rqPrev')
-    --
-    -- Note that if the in-memory changelog contains the greatest key, then
-    -- we'll return that in step (1) above, in which case the next passed
-    -- 'rqPrev' will contain it, which will cause 'doDropLTE' to result in an
-    -- empty diff, which will result in an entirely empty range query result,
-    -- which is the termination case.
-    doFixupReadResult ::
-         Ord k
-      => Int
-      -- ^ Number of requested keys from the backing store.
-      -> DiffMK   k v
-      -- ^ Differences that will be applied to the values read from the backing
-      -- store.
-      -> ValuesMK k v
-      -- ^ Values read from the backing store. The number of values read should
-      -- be at most @nrequested@.
-      -> ValuesMK k v
-    doFixupReadResult
-      nrequested
-      (DiffMK ds)
-      (ValuesMK vs) =
-        let includingAllKeys        =
-              Diff.applyDiff vs ds
-            definitelyNoMoreToFetch = Map.size vs < nrequested
-        in
-        ValuesMK
-      $ case Map.maxViewWithKey vs of
-          Nothing             ->
-              if definitelyNoMoreToFetch
-              then includingAllKeys
-              else error $ "Size of values " <> show (Map.size vs) <> ", nrequested " <> show nrequested
-          Just ((k, _v), vs') ->
-            if definitelyNoMoreToFetch then includingAllKeys else
-            Diff.applyDiff
-              vs'
-               (Diff.filterOnlyKey (< k) ds)
+  --   -- INVARIANT: nrequested > 0
+  --   --
+  --   -- (1) if we reached the end of the store, then simply yield the given diff
+  --   --     applied to the given values
+  --   -- (2) otherwise, the readset must be non-empty, since 'rqCount' is positive
+  --   -- (3) remove the greatest read key
+  --   -- (4) remove all diff elements that are >= the greatest read key
+  --   -- (5) apply the remaining diff
+  --   -- (6) (the greatest read key will be the first fetched if the yield of this
+  --   --     result is next passed as 'rqPrev')
+  --   --
+  --   -- Note that if the in-memory changelog contains the greatest key, then
+  --   -- we'll return that in step (1) above, in which case the next passed
+  --   -- 'rqPrev' will contain it, which will cause 'doDropLTE' to result in an
+  --   -- empty diff, which will result in an entirely empty range query result,
+  --   -- which is the termination case.
+  --   doFixupReadResult ::
+  --        Ord k
+  --     => Int
+  --     -- ^ Number of requested keys from the backing store.
+  --     -> DiffMK   k v
+  --     -- ^ Differences that will be applied to the values read from the backing
+  --     -- store.
+  --     -> ValuesMK k v
+  --     -- ^ Values read from the backing store. The number of values read should
+  --     -- be at most @nrequested@.
+  --     -> ValuesMK k v
+  --   doFixupReadResult
+  --     nrequested
+  --     (DiffMK ds)
+  --     (ValuesMK vs) =
+  --       let includingAllKeys        =
+  --             Diff.applyDiff vs ds
+  --           definitelyNoMoreToFetch = Map.size vs < nrequested
+  --       in
+  --       ValuesMK
+  --     $ case Map.maxViewWithKey vs of
+  --         Nothing             ->
+  --             if definitelyNoMoreToFetch
+  --             then includingAllKeys
+  --             else error $ "Size of values " <> show (Map.size vs) <> ", nrequested " <> show nrequested
+  --         Just ((k, _v), vs') ->
+  --           if definitelyNoMoreToFetch then includingAllKeys else
+  --           Diff.applyDiff
+  --             vs'
+  --              (Diff.filterOnlyKey (< k) ds)
 
 implForkerRangeReadTablesDefault ::
      (MonadSTM m, HasLedgerTables l)

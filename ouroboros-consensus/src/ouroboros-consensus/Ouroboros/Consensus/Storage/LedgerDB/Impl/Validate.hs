@@ -53,13 +53,13 @@ validate ::
   -> TopLevelConfig blk
   -> ([RealPoint blk] -> STM m ())
   -> STM m (Set (RealPoint blk))
-  -> (ResourceRegistry m -> Word64 -> m (Either ExceededRollback (Forker m l blk)))
+  -> (ResourceRegistry m -> Word64 -> m (Either ExceededRollback (Forker' m blk)))
   -> ResourceRegistry m
   -> (TraceValidateEvent blk -> m ())
   -> BlockCache blk
   -> Word64          -- ^ How many blocks to roll back
   -> [Header blk]
-  -> m (ValidateResult m l blk)
+  -> m (ValidateResult' m blk)
 validate resolve config addPrevApplied prevApplied forkerAtFromTip rr trace blockCache numRollbacks hdrs = do
     aps <- mkAps <$> atomically prevApplied
     res <- fmap rewrap $ defaultResolveWithErrors resolve $

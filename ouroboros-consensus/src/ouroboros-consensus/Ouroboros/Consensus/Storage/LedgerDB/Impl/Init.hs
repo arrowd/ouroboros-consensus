@@ -1,16 +1,12 @@
-{-# LANGUAGE BangPatterns           #-}
-{-# LANGUAGE ConstraintKinds        #-}
-{-# LANGUAGE DeriveGeneric          #-}
-{-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE GADTs                  #-}
-{-# LANGUAGE NamedFieldPuns         #-}
-{-# LANGUAGE RankNTypes             #-}
-{-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TypeFamilies           #-}
-{-# LANGUAGE TypeOperators          #-}
-{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE BangPatterns             #-}
+{-# LANGUAGE DeriveGeneric            #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE FunctionalDependencies   #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE NamedFieldPuns           #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeFamilies             #-}
 
 -- | Logic for initializing the LedgerDB.
 --
@@ -21,7 +17,9 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Init (
     ResolveBlock
   , ResolvesBlocks (..)
     -- * Initialization interface
+  , Database
   , InitDB (..)
+  , Internal
     -- * Initialization logic
   , InitLog (..)
   , openDB
@@ -33,6 +31,7 @@ import           Control.Monad.Except (ExceptT, runExceptT)
 import           Control.Monad.Reader
 import           Control.Tracer
 import           Data.Functor.Contravariant ((>$<))
+import           Data.Kind (Type)
 import           Data.Word
 import           GHC.Generics hiding (from)
 import           Ouroboros.Consensus.Block
@@ -111,14 +110,31 @@ data InitLog blk =
   | InitFailure DiskSnapshot (SnapshotFailure blk) (InitLog blk)
   deriving (Show, Eq, Generic)
 
+-- | The type of the Database that will be created in InitDB.
+type Database :: LedgerDbFlavor -> (Type -> Type) -> Type -> Type
+type family Database flavor m blk
+
+-- | The Internal functions that initializing a LedgerDB will provide for tests.
+type Internal :: LedgerDbFlavor -> (Type -> Type) -> Type -> Type
+type family Internal flavor m blk
+
 -- | Functions required to initialize a LedgerDB
-data InitDB m blk db internal = InitDB {
-    initFromGenesis  :: !(m db)
-  , initFromSnapshot :: !(DiskSnapshot -> m (Either (SnapshotFailure blk) (db, RealPoint blk)))
-  , closeDb          :: !(db -> m ())
-  , initApplyBlock   :: !(LedgerDbCfg (ExtLedgerState blk) -> blk -> db -> m db)
-  , currentTip       :: !(db -> LedgerState blk EmptyMK)
-  , mkLedgerDb       :: !(db -> m (LedgerDB m (ExtLedgerState blk) blk, internal))
+type InitDB :: LedgerDbFlavor -> (Type -> Type) -> Type -> Type
+data InitDB flavor m blk = InitDB {
+    initFromGenesis  :: !(m (Database flavor m blk))
+    -- ^ Create a DB from the genesis state
+  , initFromSnapshot :: !(DiskSnapshot -> m (Either (SnapshotFailure blk) (Database flavor m blk, RealPoint blk)))
+    -- ^ Create a DB from a Snapshot
+  , closeDb          :: !(Database flavor m blk -> m ())
+    -- ^ Closing the database, to be reopened again with a different snapshot or
+    -- with the genesis state.
+  , initReapplyBlock :: !(LedgerDbCfg (ExtLedgerState blk) -> blk -> Database flavor m blk -> m (Database flavor m blk))
+    -- ^ Reapply a block from the immutable DB when initializing the DB.
+  , currentTip       :: !(Database flavor m blk -> LedgerState blk EmptyMK)
+    -- ^ Getting the current tip for tracing the Ledger Events.
+  , mkLedgerDb       :: !(Database flavor m blk -> m (LedgerDB m (ExtLedgerState blk) blk, Internal flavor m blk))
+    -- ^ Create a LedgerDB from the initialized data structures from previous
+    -- steps.
   }
 
 -- | Initialize the ledger DB from the most recent snapshot on disk
@@ -146,7 +162,7 @@ data InitDB m blk db internal = InitDB {
 -- obtained in this way will (hopefully) share much of their memory footprint
 -- with their predecessors.
 initialize ::
-     forall m blk db internal.
+     forall flavor m blk.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
@@ -158,8 +174,8 @@ initialize ::
   -> LedgerDbCfg (ExtLedgerState blk)
   -> StreamAPI m blk blk
   -> Point blk
-  -> InitDB m blk db internal
-  -> m (InitLog blk, db, Word64)
+  -> InitDB flavor m blk
+  -> m (InitLog blk, Database flavor m blk, Word64)
 initialize replayTracer
            snapTracer
            hasFS
@@ -174,7 +190,7 @@ initialize replayTracer
     tryNewestFirst :: (InitLog blk -> InitLog blk)
                    -> [DiskSnapshot]
                    -> m ( InitLog   blk
-                        , db
+                        , Database flavor m blk
                         , Word64
                         )
     tryNewestFirst acc [] = do
@@ -238,7 +254,7 @@ initialize replayTracer
 --
 -- It will also return the number of blocks that were replayed.
 replayStartingWith ::
-     forall m blk db internal. (
+     forall flavor m blk. (
          IOLike m
        , LedgerSupportsProtocol blk
        , InspectLedger blk
@@ -247,26 +263,24 @@ replayStartingWith ::
   => Tracer m (ReplayStart blk -> ReplayGoal blk -> TraceReplayProgressEvent blk)
   -> LedgerDbCfg (ExtLedgerState blk)
   -> StreamAPI m blk blk
-  -> db
+  -> Database flavor m blk
   -> Point blk
-  -> InitDB m blk db internal
-  -> ExceptT (SnapshotFailure blk) m (db, Word64)
-replayStartingWith tracer cfg stream initDb from InitDB{initApplyBlock, currentTip} = do
+  -> InitDB flavor m blk
+  -> ExceptT (SnapshotFailure blk) m (Database flavor m blk, Word64)
+replayStartingWith tracer cfg stream initDb from InitDB{initReapplyBlock, currentTip} = do
     streamAll stream from
         InitFailureTooRecent
         (initDb, 0)
         push
   where
     push :: blk
-         -> (db, Word64)
-         -> m (db, Word64)
+         -> (Database flavor m blk, Word64)
+         -> m (Database flavor m blk, Word64)
     push blk (!db, !replayed) = do
-        !db' <- initApplyBlock cfg blk db
+        !db' <- initReapplyBlock cfg blk db
 
-        let replayed' :: Word64
-            !replayed' = replayed + 1
+        let !replayed' = replayed + 1
 
-            events :: [LedgerEvent blk]
             events = inspectLedger
                        (getExtLedgerCfg (ledgerDbCfg cfg))
                        (currentTip db)
@@ -279,49 +293,33 @@ replayStartingWith tracer cfg stream initDb from InitDB{initApplyBlock, currentT
   Opening a LedgerDB
 -------------------------------------------------------------------------------}
 
--- | Open the ledger DB
---
--- In addition to the ledger DB also returns the number of immutable blocks that
--- were replayed.
 openDB ::
-  forall m l blk db flavor impl internal.
   ( IOLike m
   , LedgerSupportsProtocol blk
   , InspectLedger blk
   , HasCallStack
-  , l ~ ExtLedgerState blk
   )
-  => Complete LedgerDbArgs flavor impl m blk
-  -- ^ Stateless initializaton arguments
-  -> InitDB m blk db internal
-  -- ^ How to initialize the db.
+  => Complete LedgerDbArgs impl m blk
+  -> InitDB (Flavor impl) m blk
   -> StreamAPI m blk blk
-  -- ^ Reference to the immutable DB
-  --
-  -- After reading a snapshot from disk, the ledger DB will be brought up to
-  -- date with tip of the immutable DB. The corresponding ledger state at the
-  -- tip can then be used as the starting point for chain selection in the
-  -- ChainDB driver.
   -> Point blk
-  -> m (LedgerDB m l blk, Word64)
+  -> m (LedgerDB' m blk, Word64)
 openDB args initDb stream replayGoal =
     f <$> openDBInternal args initDb stream replayGoal
   where f (ldb, replayCounter, _) = (ldb, replayCounter)
 
 -- | Open the ledger DB and expose internals for testing purposes
 openDBInternal ::
-  forall m l blk (flavor :: LedgerDbFlavor) db (impl :: LedgerDbStorageFlavor) internal.
   ( IOLike m
   , LedgerSupportsProtocol blk
   , InspectLedger blk
   , HasCallStack
-  , l ~ ExtLedgerState blk
   )
-  => Complete LedgerDbArgs flavor impl m blk
-  -> InitDB m blk db internal
+  => Complete LedgerDbArgs impl m blk
+  -> InitDB (Flavor impl) m blk
   -> StreamAPI m blk blk
   -> Point blk
-  -> m (LedgerDB m l blk, Word64, internal)
+  -> m (LedgerDB' m blk, Word64, Internal (Flavor impl) m blk)
 openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream replayGoal = do
     createDirectoryIfMissing fs True (mkFsPath [])
     (_initLog, db, replayCounter) <-
@@ -343,5 +341,5 @@ openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream repla
       , lgrTracer
       } = args
 
-    replayTracer = LedgerReplayEvent >$< lgrTracer
-    snapTracer = LedgerDBSnapshotEvent >$< lgrTracer
+    replayTracer = LedgerReplayEvent     >$< lgrTracer
+    snapTracer   = LedgerDBSnapshotEvent >$< lgrTracer

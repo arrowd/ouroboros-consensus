@@ -14,6 +14,7 @@ module Ouroboros.Consensus.Storage.LedgerDB (
   ) where
 
 import           Control.Monad.Base
+import           Data.SOP.Dict
 import           Data.Word
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Ledger.Inspect
@@ -33,40 +34,42 @@ import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.Singletons
 
 openDB ::
-  forall m blk.
+  forall m blk impl.
   ( IOLike m
   , MonadBase m m
   , LedgerSupportsProtocol blk
   , LedgerDbSerialiseConstraints blk
   , InspectLedger blk
+  , SingI impl
   , HasCallStack
   )
-  => Complete SomeLedgerDbArgs m blk
+  => Complete LedgerDbArgs impl m blk
   -- ^ Stateless initializaton arguments
   -> StreamAPI m blk blk
-  -- ^ Reference to the immutable DB
+  -- ^ Stream source for blocks.
   --
   -- After reading a snapshot from disk, the ledger DB will be brought up to
-  -- date with tip of the immutable DB. The corresponding ledger state can then
-  -- be used as the starting point for chain selection in the ChainDB driver.
+  -- date with the tip of this steam of blocks. The corresponding ledger state
+  -- can then be used as the starting point for chain selection in the ChainDB
+  -- driver.
   -> Point blk
-  -- ^ The Replay goal i.e. the immutable tip.
+  -- ^ The Replay goal i.e. the tip of the stream of blocks.
   -> ResolveBlock m blk
   -- ^ How to get blocks from the ChainDB
   -> m (LedgerDB' m blk, Word64)
 openDB
-  (SomeLedgerDbArgs (args@LedgerDbArgs{} :: Complete LedgerDbArgs flavor impl m blk))
+  args
   immdb
   replayGoal
   getBlock =
-    case sing :: Sing flavor of
-      SFlavorV1 ->
+    case sing :: Sing impl of
+      SFlavorV1' Dict ->
         let initDb = V1.mkInitDb
                        args
                        getBlock
         in
           Init.openDB args initDb immdb replayGoal
-      SFlavorV2 ->
+      SFlavorV2' Dict ->
         let initDb = V2.mkInitDb
                        args
                        getBlock

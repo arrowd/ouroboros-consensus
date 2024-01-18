@@ -1,11 +1,10 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.Init (mkInitDb) where
@@ -38,7 +37,7 @@ import           Ouroboros.Consensus.Storage.LedgerDB.V2.Common
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.InMemory as InMemory
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.LSM as LSM
-import           Ouroboros.Consensus.Util
+import           Ouroboros.Consensus.Util hiding (Dict (..))
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
@@ -48,21 +47,25 @@ import           Ouroboros.Network.AnchoredSeq (AnchoredSeq)
 import qualified Ouroboros.Network.AnchoredSeq as AS
 import           System.FS.API
 
+type instance Database FlavorV2 m blk = LedgerSeq' m blk
+type instance Internal FlavorV2 m blk = ()
+
 mkInitDb :: forall m blk impl.
             ( LedgerSupportsProtocol blk
             , IOLike m
             , MonadBase m m
             , LedgerDbSerialiseConstraints blk
+            , SingI impl
             )
-         => Complete LedgerDbArgs FlavorV2 impl m blk
+         => Complete LedgerDbArgs '(FlavorV2, impl) m blk
          -> ResolveBlock m blk
-         -> InitDB m blk (LedgerSeq' m blk) ()
+         -> InitDB FlavorV2 m blk
 mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = _ }) getBlock =
   InitDB {
       initFromGenesis = emptyF =<< lgrGenesis
     , initFromSnapshot = loadSnapshot (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS
     , closeDb = closeLedgerSeq
-    , initApplyBlock = applyThenPush
+    , initReapplyBlock = applyThenPush
     , currentTip = ledgerState . current
     , mkLedgerDb = \lseq -> do
         let dbPrunedToImmDBTip = pruneToImmTipOnly lseq
@@ -75,11 +78,10 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = _ }) getBlock =
                , ldbPrevApplied    = prevApplied
                , ldbForkers        = forkers
                , ldbNextForkerKey  = nextForkerKey
-               , ldbSnapshotPolicy = lgrSnapshotPolicy
+               , ldbSnapshotPolicy = defaultSnapshotPolicy (ledgerDbCfgSecParam lgrConfig) lgrSnapshotInterval
                , ldbTracer         = lgrTracer
                , ldbCfg            = lgrConfig
                , ldbHasFS          = lgrHasFS
-               , ldbQueryBatchSize = lgrQueryBatchSize
                , ldbResolveBlock   = getBlock
                , ldbSecParam       = ledgerDbCfgSecParam lgrConfig
                }
@@ -91,24 +93,25 @@ mkInitDb args@(LedgerDbArgs { lgrFlavorArgs = _ }) getBlock =
        lgrConfig
      , lgrGenesis
      , lgrHasFS
-     , lgrSnapshotPolicy
+     , lgrSnapshotInterval
      , lgrTracer
-     , lgrQueryBatchSize
      } = args
 
-   bss = sing :: Sing impl
+   bss = case sing :: Sing impl of
+     SInMemory -> SInMemory
+     SOnDisk   -> SOnDisk
 
    emptyF :: ExtLedgerState blk ValuesMK
           -> m (LedgerSeq' m blk)
-   emptyF st = empty' st $ case bss of
-     SInMemory -> InMemory.newInMemoryLedgerTablesHandle
+   emptyF st = empty' st $ case sing :: Sing impl of
+     SInMemory -> InMemory.newInMemoryLedgerTablesHandle lgrHasFS
      SOnDisk   -> LSM.newLSMLedgerTablesHandle
 
    loadSnapshot :: CodecConfig blk
                 -> SomeHasFS m
                 -> DiskSnapshot
                 -> m (Either (SnapshotFailure blk) (LedgerSeq' m blk, RealPoint blk))
-   loadSnapshot = case bss of
+   loadSnapshot = case sing :: Sing impl of
      SInMemory -> InMemory.loadSnapshot
      SOnDisk   -> LSM.loadSnapshot
 

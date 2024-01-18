@@ -52,6 +52,7 @@ import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Init
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
@@ -120,14 +121,13 @@ data LedgerDBEnv impl m l blk = LedgerDBEnv {
   , ldbNextForkerKey  :: !(StrictTVar m ForkerKey)
 
   , ldbSnapshotPolicy :: !SnapshotPolicy
-  , ldbTracer         :: !(Tracer m (TraceLedgerDBEvent FlavorV1 impl blk))
+  , ldbTracer         :: !(Tracer m (TraceLedgerDBEvent '(FlavorV1, impl) blk))
   , ldbCfg            :: !(LedgerDbCfg l)
   , ldbHasFS          :: !(SomeHasFS m)
   , ldbShouldFlush    :: !(Word64 -> Bool)
   , ldbQueryBatchSize :: !QueryBatchSize
   , ldbResolveBlock   :: !(ResolveBlock m blk)
   , ldbSecParam       :: !SecurityParam
-  , ldbFlavorSpecificTracer :: !(Tracer m (FlavorImplSpecificTrace FlavorV1 impl))
   } deriving (Generic)
 
 deriving instance ( IOLike m

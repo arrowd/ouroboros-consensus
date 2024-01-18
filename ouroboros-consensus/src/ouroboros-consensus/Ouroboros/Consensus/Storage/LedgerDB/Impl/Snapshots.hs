@@ -102,12 +102,13 @@ data SnapshotFailure blk =
   | InitFailureGenesis
   deriving (Show, Eq, Generic)
 
--- | Named snapshot are permanent, they will never be deleted when trimming.
+-- | Named snapshot are permanent, they will never be deleted even if failing to
+-- deserialize.
 diskSnapshotIsPermanent :: DiskSnapshot -> Bool
 diskSnapshotIsPermanent = isJust . dsSuffix
 
 -- | The snapshots that are periodically created are temporary, they will be
--- deleted when trimming
+-- deleted when trimming or if they fail to deserialize.
 diskSnapshotIsTemporary :: DiskSnapshot -> Bool
 diskSnapshotIsTemporary = not . diskSnapshotIsPermanent
 

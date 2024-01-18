@@ -76,31 +76,33 @@ newInMemoryLedgerTablesHandle ::
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      )
-  => LedgerTables l ValuesMK
+  => SomeHasFS m
+  -> LedgerTables l ValuesMK
   -> m (LedgerTablesHandle m l)
-newInMemoryLedgerTablesHandle l = do
+newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
   ioref <- newTVarIO (LedgerTablesHandleOpen l)
   pure LedgerTablesHandle {
       close = atomically $ modifyTVar ioref (const LedgerTablesHandleClosed)
     , duplicate = do
         hs <- readTVarIO ioref
-        guardClosed hs newInMemoryLedgerTablesHandle
+        guardClosed hs $ newInMemoryLedgerTablesHandle someFS
     , read = \keys -> do
         hs <- readTVarIO ioref
         guardClosed hs (\st -> pure $ ltliftA2 rawRestrictValues st keys)
-    , readAll = do
-        hs <- readTVarIO ioref
-        guardClosed hs pure
+    , readRange = undefined -- TODO (js) -- \(f, t) -> do
+        -- hs <- readTVarIO ioref
+        -- guardClosed hs (\(LedgerTables (ValuesMK m)) ->
+        --                   pure . LedgerTables . ValuesMK . fst . Map.split t . snd . Map.split f $ m)
     , write = \diffs -> do
         atomically
         $ modifyTVar ioref
         (`guardClosed` (\st -> LedgerTablesHandleOpen (ltliftA2 rawApplyDiffs st diffs)))
-    , writeToDisk = \(SomeHasFS hasFS) path -> do
-        createDirectory hasFS path
+    , writeToDisk = \snapshotName -> do
+        createDirectory hasFS $ mkFsPath [snapshotName]
         h <- readTVarIO ioref
         guardClosed h $
           \values ->
-            withFile hasFS (extendPath path) (WriteMode MustBeNew) $ \hf ->
+            withFile hasFS (mkFsPath [snapshotName, "tables", "tvar"]) (WriteMode MustBeNew) $ \hf ->
               void $ hPutAll hasFS hf
                    $ CBOR.toLazyByteString
                    $ valuesMKEncoder values
@@ -118,11 +120,6 @@ newInMemoryLedgerTablesHandle l = do
 snapshotToStatePath :: DiskSnapshot -> FsPath
 snapshotToStatePath = mkFsPath . (\x -> [x, "state"]) . snapshotToDirName
 
--- | The path within the LedgerDB's filesystem to the directory that contains a
--- the serialized tables.
-snapshotToTablesPath :: DiskSnapshot -> FsPath
-snapshotToTablesPath = mkFsPath . (\x -> [x, "tables"]) . snapshotToDirName
-
 writeSnapshot ::
      MonadThrow m
   => SomeHasFS m
@@ -132,7 +129,7 @@ writeSnapshot ::
   -> m ()
 writeSnapshot fs encLedger ds st = do
     writeExtLedgerState fs encLedger (snapshotToDirPath ds) $ state st
-    writeToDisk (tables st) fs (extendPath $ snapshotToTablesPath ds)
+    writeToDisk (tables st) $ snapshotToDirName ds
 
 takeSnapshot ::
      ( MonadThrow m
@@ -158,10 +155,6 @@ takeSnapshot ccfg tracer hasFS st = do
         traceWith tracer $ TookSnapshot snapshot t
         return $ Just (snapshot, t)
 
-extendPath :: FsPath -> FsPath
-extendPath path =
-      fsPathFromList $ fsPathToList path <> [fromString "tvar"]
-
 loadSnapshot ::
     ( LedgerDbSerialiseConstraints blk
     , LedgerSupportsProtocol blk
@@ -179,17 +172,19 @@ loadSnapshot ccfg fs@(SomeHasFS hasFS) ds = do
       case pointToWithOriginRealPoint (castPoint (getTip extLedgerSt)) of
         Origin        -> pure (Left InitFailureGenesis)
         NotOrigin pt -> do
-          values <- withFile hasFS (extendPath (snapshotToTablesPath ds)) ReadMode $ \h -> do
+          values <- withFile hasFS ( fsPathFromList
+                                   $ fsPathToList (snapshotToDirPath ds)
+                                   <> [fromString "tables", fromString "tvar"]) ReadMode $ \h -> do
             bs <- hGetAll hasFS h
             case CBOR.deserialiseFromBytes valuesMKDecoder bs of
               Left  err        -> error $ show err
               Right (extra, x) -> do
                 unless (BSL.null extra) $ error "Trailing bytes in snapshot"
                 pure x
-          Right . (,pt) <$> empty extLedgerSt values newInMemoryLedgerTablesHandle
+          Right . (,pt) <$> empty extLedgerSt values (newInMemoryLedgerTablesHandle fs)
 
 {-------------------------------------------------------------------------------
   Traces
 -------------------------------------------------------------------------------}
 
-data instance FlavorImplSpecificTrace FlavorV2 InMemory deriving (Eq, Show)
+data instance FlavorImplSpecificTrace '(FlavorV2, InMemory) deriving (Eq, Show)

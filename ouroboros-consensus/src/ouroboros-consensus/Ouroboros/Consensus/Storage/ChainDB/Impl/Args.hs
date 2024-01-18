@@ -1,53 +1,44 @@
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE GADTs                     #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE StandaloneKindSignatures  #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE KindSignatures           #-}
+{-# LANGUAGE NamedFieldPuns           #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Ouroboros.Consensus.Storage.ChainDB.Impl.Args (
     ChainDbArgs (..)
   , ChainDbSpecificArgs (..)
   , RelativeMountPoint (..)
-  , SomeChainDbArgs (..)
+  , completeChainDbArgs
   , defaultArgs
-    -- * Internal
-  , cdbBlocksToAddSize
-  , cdbCheckInFuture
-  , cdbCheckIntegrity
-  , cdbChunkInfo
-  , cdbGcDelay
-  , cdbGcInterval
-  , cdbGenesis
-  , cdbHasFSImmutableDB
-  , cdbHasFSLedgerDB
-  , cdbHasFSVolatileDB
-  , cdbImmutableDbCacheConfig
-  , cdbImmutableDbValidation
-  , cdbMaxBlocksPerFile
-  , cdbRegistry
-  , cdbSnapshotPolicy
-  , cdbTopLevelConfig
-  , cdbTracer
-  , cdbVolatileDbValidation
+  , ensureValidateAll
+  , updateLdbFlavorArgs
+  , updateSnapshotInterval
+  , updateTracer
   ) where
 
 import           Control.Tracer (Tracer, nullTracer)
+import           Data.Functor.Contravariant ((>$<))
 import           Data.Kind
-import           Data.Time.Clock (DiffTime, secondsToDiffTime)
+import           Data.Time.Clock (secondsToDiffTime)
+import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Fragment.InFuture (CheckInFuture)
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.Tables
+import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
                      (TraceEvent (..))
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
-import qualified Ouroboros.Consensus.Storage.LedgerDB as LedgerDB
+import qualified Ouroboros.Consensus.Storage.LedgerDB.API.Config as LedgerDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Args as LedgerDB
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors as LedgerDB
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots as LedgerDB
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.Args
+import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry (ResourceRegistry)
 import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
@@ -56,114 +47,27 @@ import           System.FS.API
   Arguments
 -------------------------------------------------------------------------------}
 
-data ChainDbArgs f flavor impl m blk = ChainDbArgs {
+data ChainDbArgs f ldbImpl m blk = SingI ldbImpl => ChainDbArgs {
     cdbImmDbArgs :: ImmutableDB.ImmutableDbArgs f m blk
   , cdbVolDbArgs :: VolatileDB.VolatileDbArgs f m blk
-  , cdbLgrDbArgs :: LedgerDB.LedgerDbArgs f flavor impl m blk
-  , cdbsArgs     :: ChainDbSpecificArgs f flavor impl m blk
+  , cdbLgrDbArgs :: LedgerDB.LedgerDbArgs f ldbImpl m blk
+  , cdbsArgs     :: ChainDbSpecificArgs f ldbImpl m blk
   }
-
-cdbHasFSImmutableDB ::
-     ChainDbArgs f flavor impl m blk
-  -> SomeHasFS m
-cdbHasFSImmutableDB = ImmutableDB.immHasFS . cdbImmDbArgs
-
-cdbImmutableDbValidation ::
-     ChainDbArgs f flavor impl m blk
-  -> ImmutableDB.ValidationPolicy
-cdbImmutableDbValidation = ImmutableDB.immValidationPolicy . cdbImmDbArgs
-
-cdbChunkInfo ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f ImmutableDB.ChunkInfo
-cdbChunkInfo = ImmutableDB.immChunkInfo . cdbImmDbArgs
-
-cdbImmutableDbCacheConfig ::
-     ChainDbArgs f flavor impl m blk
-  -> ImmutableDB.CacheConfig
-cdbImmutableDbCacheConfig = ImmutableDB.immCacheConfig . cdbImmDbArgs
-
-cdbCheckIntegrity ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f (blk -> Bool)
-cdbCheckIntegrity = ImmutableDB.immCheckIntegrity . cdbImmDbArgs
-
-cdbHasFSVolatileDB ::
-     ChainDbArgs f flavor impl m blk
-  -> SomeHasFS m
-cdbHasFSVolatileDB = VolatileDB.volHasFS . cdbVolDbArgs
-
-cdbVolatileDbValidation ::
-     ChainDbArgs f flavor impl m blk
-  -> VolatileDB.BlockValidationPolicy
-cdbVolatileDbValidation = VolatileDB.volValidationPolicy . cdbVolDbArgs
-
-cdbMaxBlocksPerFile ::
-     ChainDbArgs f flavor impl m blk
-  -> VolatileDB.BlocksPerFile
-cdbMaxBlocksPerFile = VolatileDB.volMaxBlocksPerFile . cdbVolDbArgs
-
-cdbHasFSLedgerDB ::
-     ChainDbArgs f flavor impl m blk
-  -> SomeHasFS m
-cdbHasFSLedgerDB = LedgerDB.lgrHasFS . cdbLgrDbArgs
-
-cdbSnapshotPolicy ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f LedgerDB.SnapshotPolicy
-cdbSnapshotPolicy = LedgerDB.lgrSnapshotPolicy . cdbLgrDbArgs
-
-cdbGenesis ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f (m (ExtLedgerState blk ValuesMK))
-cdbGenesis = LedgerDB.lgrGenesis . cdbLgrDbArgs
-
-cdbCheckInFuture ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f (CheckInFuture m blk)
-cdbCheckInFuture = cdbsCheckInFuture . cdbsArgs
-
-cdbRegistry ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f (ResourceRegistry m)
-cdbRegistry = cdbsRegistry . cdbsArgs
-
-cdbGcDelay ::
-     ChainDbArgs f flavor impl m blk
-  -> DiffTime
-cdbGcDelay = cdbsGcDelay . cdbsArgs
-
-cdbGcInterval ::
-     ChainDbArgs f flavor impl m blk
-  -> DiffTime
-cdbGcInterval = cdbsGcInterval . cdbsArgs
-
-cdbBlocksToAddSize ::
-     ChainDbArgs f flavor impl m blk
-  -> Word
-cdbBlocksToAddSize = cdbsBlocksToAddSize . cdbsArgs
-
-cdbTopLevelConfig ::
-     ChainDbArgs f flavor impl m blk
-  -> HKD f (TopLevelConfig blk)
-cdbTopLevelConfig = cdbsTopLevelConfig . cdbsArgs
-
-cdbTracer ::
-     ChainDbArgs f flavor impl m blk
-  -> Tracer m (TraceEvent flavor impl blk)
-cdbTracer = cdbsTracer . cdbsArgs
-
-data SomeChainDbArgs f m blk where
-  SomeChainDbArgs ::
-       (SingI flavor, SingI impl)
-    => ChainDbArgs f flavor impl m blk
-    -> SomeChainDbArgs f m blk
 
 -- | Arguments specific to the ChainDB, not to the ImmutableDB, VolatileDB, or
 -- LedgerDB.
-type ChainDbSpecificArgs :: (Type -> Type)  -> LedgerDB.LedgerDbFlavor -> LedgerDB.LedgerDbStorageFlavor -> (Type -> Type) -> Type -> Type
-data ChainDbSpecificArgs f flavor impl m blk = ChainDbSpecificArgs {
+type ChainDbSpecificArgs ::
+     (Type -> Type)
+  -> LedgerDB.LedgerDbImplementation
+  -> (Type -> Type)
+  -> Type
+  -> Type
+data ChainDbSpecificArgs f ldbImpl m blk = ChainDbSpecificArgs {
       cdbsBlocksToAddSize :: Word
+      -- ^ Size of the queue used to store asynchronously added blocks. This
+      -- is the maximum number of blocks that could be kept in memory at the
+      -- same time when the background thread processing the blocks can't keep
+      -- up.
     , cdbsCheckInFuture   :: HKD f (CheckInFuture m blk)
     , cdbsGcDelay         :: DiffTime
       -- ^ Delay between copying a block to the ImmutableDB and triggering a
@@ -176,7 +80,7 @@ data ChainDbSpecificArgs f flavor impl m blk = ChainDbSpecificArgs {
       -- ^ Batch all scheduled GCs so that at most one GC happens every
       -- 'cdbsGcInterval'.
     , cdbsRegistry        :: HKD f (ResourceRegistry m)
-    , cdbsTracer          :: Tracer m (TraceEvent flavor impl blk)
+    , cdbsTracer          :: Tracer m (TraceEvent ldbImpl blk)
     , cdbsTopLevelConfig  :: HKD f (TopLevelConfig blk)
     }
 
@@ -202,7 +106,7 @@ data ChainDbSpecificArgs f flavor impl m blk = ChainDbSpecificArgs {
 --   have, because of batching) < the number of blocks sync in @gcInterval@.
 --   E.g., when syncing at 1k-2k blocks/s, this means 10k-20k blocks. During
 --   normal operation, we receive 1 block/20s, meaning at most 1 block.
-defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs flavor impl m blk
+defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs ldbImpl m blk
 defaultSpecificArgs = ChainDbSpecificArgs {
       cdbsBlocksToAddSize = 10
     , cdbsCheckInFuture   = NoDefault
@@ -219,21 +123,98 @@ defaultSpecificArgs = ChainDbSpecificArgs {
 -- and 'defaultSpecificArgs' for a list of which fields are not given a default
 -- and must therefore be set explicitly.
 defaultArgs ::
-     forall m blk flavor impl.
-     (Monad m, LedgerDB.HasFlavorArgs flavor impl m)
-  => (RelativeMountPoint -> SomeHasFS m)
-  -> Incomplete ChainDbArgs flavor impl m blk
-defaultArgs mkFS =
-   ChainDbArgs (ImmutableDB.defaultArgs immFS)
-               (VolatileDB.defaultArgs  volFS)
-               (LedgerDB.defaultArgs    lgrFS)
+     forall m blk ldbImpl.
+     (Monad m, LedgerDB.HasFlavorArgs ldbImpl m)
+  => Incomplete ChainDbArgs ldbImpl m blk
+defaultArgs =
+   ChainDbArgs ImmutableDB.defaultArgs
+               VolatileDB.defaultArgs
+               LedgerDB.defaultArgs
                defaultSpecificArgs
-  where
-    immFS, volFS, lgrFS :: SomeHasFS m
 
-    immFS = mkFS $ RelativeMountPoint "immutable"
-    volFS = mkFS $ RelativeMountPoint "volatile"
-    lgrFS = mkFS $ RelativeMountPoint "ledger"
+ensureValidateAll ::
+     ChainDbArgs f ldbImpl m blk
+  -> ChainDbArgs f ldbImpl m blk
+ensureValidateAll args =
+  args { cdbImmDbArgs = (cdbImmDbArgs args) {
+           ImmutableDB.immValidationPolicy = ImmutableDB.ValidateAllChunks
+           }
+       , cdbVolDbArgs = (cdbVolDbArgs args) {
+           VolatileDB.volValidationPolicy = VolatileDB.ValidateAll
+           }
+       }
+
+completeChainDbArgs
+  :: forall m blk ldbImpl. (ConsensusProtocol (BlockProtocol blk), IOLike m)
+  => ResourceRegistry m
+  -> CheckInFuture m blk
+  -> TopLevelConfig blk
+  -> ExtLedgerState blk ValuesMK
+     -- ^ Initial ledger
+  -> ImmutableDB.ChunkInfo
+  -> (blk -> Bool)
+     -- ^ Check integrity
+  -> (RelativeMountPoint -> SomeHasFS m)
+  -> Incomplete ChainDbArgs ldbImpl m blk
+     -- ^ A set of incomplete arguments, possibly modified wrt @defaultArgs@
+  -> Complete ChainDbArgs ldbImpl m blk
+completeChainDbArgs
+  registry
+  cdbsCheckInFuture
+  cdbsTopLevelConfig
+  initLedger
+  immChunkInfo
+  checkIntegrity
+  mkFS
+  defArgs
+  = defArgs {
+      cdbImmDbArgs = (cdbImmDbArgs defArgs) {
+            ImmutableDB.immChunkInfo
+          , ImmutableDB.immCheckIntegrity = checkIntegrity
+          , ImmutableDB.immRegistry       = registry
+          , ImmutableDB.immCodecConfig    = configCodec cdbsTopLevelConfig
+          , ImmutableDB.immHasFS          = mkFS $ RelativeMountPoint "immutable"
+          }
+      , cdbVolDbArgs = (cdbVolDbArgs defArgs) {
+            VolatileDB.volHasFS          = mkFS $ RelativeMountPoint "volatile"
+          , VolatileDB.volCheckIntegrity = checkIntegrity
+          , VolatileDB.volCodecConfig    = configCodec cdbsTopLevelConfig
+          }
+      , cdbLgrDbArgs = (cdbLgrDbArgs defArgs) {
+            LedgerDB.lgrGenesis = pure initLedger
+          , LedgerDB.lgrHasFS   = mkFS $ RelativeMountPoint "ledger"
+          , LedgerDB.lgrConfig  = LedgerDB.configLedgerDb cdbsTopLevelConfig
+          }
+      , cdbsArgs = (cdbsArgs defArgs) {
+            cdbsCheckInFuture
+          , cdbsRegistry       = registry
+          , cdbsTopLevelConfig
+          }
+      }
+
+updateTracer ::
+  Tracer m (TraceEvent ldbImpl blk)
+  -> ChainDbArgs f ldbImpl m blk
+  -> ChainDbArgs f ldbImpl m blk
+updateTracer trcr args =
+  args {
+      cdbImmDbArgs = (cdbImmDbArgs args) { ImmutableDB.immTracer = TraceImmutableDBEvent >$< trcr }
+    , cdbVolDbArgs = (cdbVolDbArgs args) { VolatileDB.volTracer  = TraceVolatileDBEvent  >$< trcr }
+    , cdbLgrDbArgs = (cdbLgrDbArgs args) { LedgerDB.lgrTracer    = TraceLedgerDBEvent    >$< trcr }
+    , cdbsArgs     = (cdbsArgs args)     { cdbsTracer            =                           trcr }
+  }
+
+updateSnapshotInterval ::
+  SnapshotInterval
+  -> ChainDbArgs f ldbImpl m blk
+  -> ChainDbArgs f ldbImpl m blk
+updateSnapshotInterval si args = args { cdbLgrDbArgs = (cdbLgrDbArgs args) { LedgerDB.lgrSnapshotInterval = si } }
+
+updateLdbFlavorArgs ::
+  LedgerDbFlavorArgs ldbImpl m
+  -> ChainDbArgs f ldbImpl m blk
+  -> ChainDbArgs f ldbImpl m blk
+updateLdbFlavorArgs fargs args = args { cdbLgrDbArgs = (cdbLgrDbArgs args) { LedgerDB.lgrFlavorArgs = fargs } }
 
 {-------------------------------------------------------------------------------
   Relative mount points

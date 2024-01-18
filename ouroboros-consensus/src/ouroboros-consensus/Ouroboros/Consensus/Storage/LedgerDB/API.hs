@@ -10,12 +10,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE NumericUnderscores         #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE QuantifiedConstraints      #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
@@ -119,9 +117,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , currentPoint
     -- * Exceptions
   , LedgerDbError (..)
-    -- * Arguments
-  , QueryBatchSize (..)
-  , defaultQueryBatchSize
     -- * Forker
   , ExceededRollback (..)
   , Forker (..)
@@ -144,6 +139,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.API (
   , SnapCounters (..)
     -- * Validation
   , ValidateResult (..)
+  , ValidateResult'
     -- ** Annotated ledger errors
   , AnnLedgerError (..)
   , AnnLedgerError'
@@ -294,36 +290,6 @@ data LedgerDbError blk =
     deriving anyclass (Exception)
 
 {-------------------------------------------------------------------------------
-  Arguments
--------------------------------------------------------------------------------}
-
--- | The /maximum/ number of keys to read in a backing store range query.
---
--- When performing a ledger state query that involves on-disk parts of the
--- ledger state, we might have to read ranges of key-value pair data (e.g.,
--- UTxO) from disk using backing store range queries. Instead of reading all
--- data in one go, we read it in batches. 'QueryBatchSize' determines the size
--- of these batches.
---
--- INVARIANT: Should be at least 1.
---
--- It is fine if the result of a range read contains less than this number of
--- keys, but it should never return more.
-data QueryBatchSize =
-    -- | A default value, which is determined by a specific 'DiskPolicy'. See
-    -- 'defaultDiskPolicy' as an example.
-    DefaultQueryBatchSize
-    -- | A requested value: the number of keys to read from disk in each batch.
-  | RequestedQueryBatchSize Word64
-  deriving (Show, Eq, Generic)
-  deriving anyclass NoThunks
-
-defaultQueryBatchSize :: QueryBatchSize -> Word64
-defaultQueryBatchSize requestedQueryBatchSize = case requestedQueryBatchSize of
-    RequestedQueryBatchSize value -> value
-    DefaultQueryBatchSize         -> 100_000
-
-{-------------------------------------------------------------------------------
   Forker
 -------------------------------------------------------------------------------}
 
@@ -382,7 +348,10 @@ instance (GetTip l, HeaderHash l ~ HeaderHash blk, MonadSTM m)
       => GetTipSTM m (Forker m l blk) where
   getTipSTM forker = castPoint . getTip <$> forkerGetLedgerState forker
 
--- TODO: document
+-- TODO: This type is unsuitable for FlavorV2 queries, in particular for LSM
+-- queries. Those will work by splitting the UTxO set in chunks, which means
+-- that there is no number of keys to read, but instead what fraction of the
+-- UTxO range of keys to consult.
 data RangeQuery l = RangeQuery {
     rqPrev  :: !(Maybe (LedgerTables l KeysMK))
   , rqCount :: !Int
@@ -530,6 +499,8 @@ data ValidateResult m l blk =
     ValidateSuccessful       (Forker m l blk)
   | ValidateLedgerError      (AnnLedgerError m l blk)
   | ValidateExceededRollBack ExceededRollback
+
+type ValidateResult' m blk = ValidateResult m (ExtLedgerState blk) blk
 
 {-------------------------------------------------------------------------------
   An annotated ledger error

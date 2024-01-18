@@ -61,7 +61,7 @@ restoreBackingStore ::
      , HasCallStack
      , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace FlavorV1 impl)
+  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
   -> BackingStoreArgs impl m
   -> SomeHasFS m
   -> FsPath
@@ -77,7 +77,7 @@ newBackingStore ::
      , HasCallStack
      , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace FlavorV1 impl)
+  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
   -> BackingStoreArgs impl m
   -> SomeHasFS m
   -> LedgerTables l ValuesMK
@@ -93,7 +93,7 @@ newBackingStoreInitialiser ::
      , HasCallStack
      , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace FlavorV1 impl)
+  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
   -> BackingStoreArgs impl m
   -> BackingStoreInitializer m l
 newBackingStoreInitialiser trcr bss =
@@ -110,12 +110,12 @@ newBackingStoreInitialiser trcr bss =
   Tracing
 -------------------------------------------------------------------------------}
 
-data instance FlavorImplSpecificTrace FlavorV1 InMemory =
+data instance FlavorImplSpecificTrace '(FlavorV1, InMemory) =
     InMemoryBackingStoreInitialise
   | InMemoryBackingStoreTrace BackingStoreTrace
   deriving (Eq, Show)
 
-data instance FlavorImplSpecificTrace FlavorV1 OnDisk =
+data instance FlavorImplSpecificTrace '(FlavorV1, OnDisk) =
     OnDiskBackingStoreInitialise LMDB.LMDBLimits
   | OnDiskBackingStoreTrace BackingStoreTrace
   deriving (Eq, Show)

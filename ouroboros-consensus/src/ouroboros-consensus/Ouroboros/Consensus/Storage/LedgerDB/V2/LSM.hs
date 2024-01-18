@@ -56,4 +56,4 @@ takeSnapshot = undefined
   Traces
 -------------------------------------------------------------------------------}
 
-data instance FlavorImplSpecificTrace FlavorV2 OnDisk deriving (Eq, Show)
+data instance FlavorImplSpecificTrace '(FlavorV2, OnDisk) deriving (Eq, Show)
