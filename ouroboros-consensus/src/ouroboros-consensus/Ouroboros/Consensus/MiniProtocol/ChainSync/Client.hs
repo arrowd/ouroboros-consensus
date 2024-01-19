@@ -53,6 +53,7 @@ module Ouroboros.Consensus.MiniProtocol.ChainSync.Client (
   , Our (..)
   , Their (..)
     -- * Trace events
+  , ChainSyncBucketConfig (..)
   , InvalidBlockReason
   , TraceChainSyncClientEvent (..)
   ) where
@@ -64,7 +65,6 @@ import           Data.Kind (Type)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
-import           Data.Ratio ((%))
 import           Data.Typeable
 import           Data.Word (Word64)
 import           GHC.Generics (Generic)
@@ -135,6 +135,12 @@ data ChainDbView m blk = ChainDbView {
               (HeaderHash blk -> Maybe (InvalidBlockReason blk)))
   }
 
+-- | Configuration of the leaky bucketH
+data ChainSyncBucketConfig = ChainSyncBucketConfig {
+    csbcCapacity :: Integer
+  , csbcRate     :: Rational
+  }
+
 defaultChainDbView ::
      (IOLike m, LedgerSupportsProtocol blk)
   => ChainDB m blk -> ChainDbView m blk
@@ -167,6 +173,7 @@ bracketChainSyncClient ::
     -- (de)register nodes (@peer@).
  -> peer
  -> NodeToNodeVersion
+ -> ChainSyncBucketConfig
  -> (StrictTVar m (AnchoredFragment (Header blk)) -> LeakyBucket.Handler m -> m a)
  -> m a
 bracketChainSyncClient
@@ -175,6 +182,7 @@ bracketChainSyncClient
     varCandidates
     peer
     version
+    csBucketConfig
     body
   =
     bracket newCandidateVar releaseCandidateVar
@@ -198,10 +206,9 @@ bracketChainSyncClient
         invalidBlockRejector
             tracer version getIsInvalidBlock (readTVar varCandidate)
 
-    -- TODO: Capacity and rate should come from configuration.
     bucketConfig = LeakyBucket.Config {
-      capacity = 5000, -- ^ 10s worth of tokens
-      rate = 2 % 1000, -- ^ one token every 2ms
+      capacity = fromInteger $ csbcCapacity csBucketConfig,
+      rate = csbcRate csBucketConfig,
       onEmpty = throwIO EmptyBucket
       }
 

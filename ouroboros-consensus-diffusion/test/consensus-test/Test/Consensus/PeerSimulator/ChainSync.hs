@@ -9,6 +9,7 @@ import           Control.Monad.Class.MonadTimer.SI (MonadTimer)
 import           Control.Tracer (Tracer, nullTracer, traceWith)
 import           Data.Map.Strict (Map)
 import           Data.Proxy (Proxy (..))
+import           Data.Ratio ((%))
 import           Ouroboros.Consensus.Block (Header, Point)
 import           Ouroboros.Consensus.Config (TopLevelConfig (..))
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client (ChainDbView,
@@ -104,7 +105,7 @@ runChainSyncClient
   StateViewTracers {svtChainSyncExceptionsTracer}
   varCandidates
   =
-    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion $ \ varCandidate bucketHandler -> do
+    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion bucketConfig $ \ varCandidate bucketHandler -> do
       res <- try $ runConnectedPeersPipelinedWithLimits
         createConnectedChannels
         nullTracer
@@ -138,3 +139,4 @@ runChainSyncClient
   where
     ntnVersion :: NodeToNodeVersion
     ntnVersion = maxBound
+    bucketConfig = CSClient.ChainSyncBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}

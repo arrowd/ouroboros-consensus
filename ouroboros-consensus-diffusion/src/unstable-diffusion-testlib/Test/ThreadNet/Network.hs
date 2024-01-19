@@ -51,6 +51,7 @@ import qualified Data.List as List
 import qualified Data.List.NonEmpty as NE
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Ratio ((%))
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Typeable as Typeable
@@ -1020,6 +1021,11 @@ runThreadNetwork systemTime ThreadNetworkArgs
                      , intersectTimeout = waitForever
                      , mustReplyTimeout = waitForever
                      , idleTimeout      = waitForever
+                     })
+                  -- TODO: a proper way to disable ChainSync bucket
+                  (CSClient.ChainSyncBucketConfig
+                     { csbcCapacity = 1,
+                       csbcRate = 1 % 1000000000
                      })
                   nullMetric
                   -- The purpose of this test is not testing protocols, so

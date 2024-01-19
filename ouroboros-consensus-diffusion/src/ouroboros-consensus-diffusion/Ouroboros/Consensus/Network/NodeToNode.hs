@@ -540,10 +540,11 @@ mkApps
   -> (NodeToNodeVersion -> Codecs blk addrNTN e m bCS bCS bBF bBF bTX bKA bPS)
   -> ByteLimits bCS bBF bTX bKA
   -> m ChainSyncTimeout
+  -> CsClient.ChainSyncBucketConfig
   -> ReportPeerMetrics m (ConnectionId addrNTN)
   -> Handlers m addrNTN blk
   -> Apps m addrNTN bCS bBF bTX bKA bPS NodeToNodeInitiatorResult ()
-mkApps kernel Tracers {..} mkCodecs ByteLimits {..} genChainSyncTimeout ReportPeerMetrics {..} Handlers {..} =
+mkApps kernel Tracers {..} mkCodecs ByteLimits {..} genChainSyncTimeout bucketConfig ReportPeerMetrics {..} Handlers {..} =
     Apps {..}
   where
     aChainSyncClient
@@ -570,7 +571,9 @@ mkApps kernel Tracers {..} mkCodecs ByteLimits {..} genChainSyncTimeout ReportPe
             (CsClient.defaultChainDbView (getChainDB kernel))
             (getNodeCandidates kernel)
             them
-            version $ \varCandidate bucketHandler -> do
+            version
+            bucketConfig
+            $ \varCandidate bucketHandler -> do
               chainSyncTimeout <- genChainSyncTimeout
               (r, trailing) <-
                 runPipelinedPeerWithLimits

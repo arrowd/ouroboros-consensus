@@ -62,6 +62,7 @@ import           Data.List (intercalate)
 import qualified Data.Map.Merge.Strict as Map
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (isJust)
+import           Data.Ratio ((%))
 import           Data.Semigroup (Max (Max), getMax)
 import qualified Data.Set as Set
 import           Data.Time (diffUTCTime)
@@ -81,11 +82,11 @@ import qualified Ouroboros.Consensus.HeaderStateHistory as HeaderStateHistory
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended hiding (ledgerState)
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
-                     (ChainDbView (..), ChainSyncClientException,
-                     ChainSyncClientResult (..), ConfigEnv (..), Consensus,
-                     DynamicEnv (..), Our (..), Their (..),
-                     TraceChainSyncClientEvent (..), bracketChainSyncClient,
-                     chainSyncClient)
+                     (ChainDbView (..), ChainSyncBucketConfig (..),
+                     ChainSyncClientException, ChainSyncClientResult (..),
+                     ConfigEnv (..), Consensus, DynamicEnv (..), Our (..),
+                     Their (..), TraceChainSyncClientEvent (..),
+                     bracketChainSyncClient, chainSyncClient)
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client.InFutureCheck as InFutureCheck
 import           Ouroboros.Consensus.Node.NetworkProtocolVersion
                      (NodeToNodeVersion)
@@ -401,6 +402,13 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
             -- Note that this tests passes in the exact difference between the
             -- client's and server's clock as the tolerable clock skew.
 
+        -- TODO: a proper way to disable ChainSync bucket
+        bucketConfig :: ChainSyncBucketConfig
+        bucketConfig = ChainSyncBucketConfig{
+          csbcCapacity = 1,
+          csbcRate = 1 % 1000000000
+          }
+
         client :: StrictTVar m (AnchoredFragment (Header TestBlock))
                -> LeakyBucket.Handler m
                -> Consensus ChainSyncClientPipelined
@@ -493,7 +501,9 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                  chainDbView
                  varCandidates
                  serverId
-                 maxBound $ \varCandidate bucketHandler -> do
+                 maxBound
+                 bucketConfig
+                 $ \varCandidate bucketHandler -> do
                    atomically $ modifyTVar varFinalCandidates $
                      Map.insert serverId varCandidate
                    result <-

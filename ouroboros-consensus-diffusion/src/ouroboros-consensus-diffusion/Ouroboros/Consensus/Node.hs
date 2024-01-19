@@ -65,6 +65,7 @@ import           Data.Hashable (Hashable)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isNothing)
+import           Data.Ratio ((%))
 import           Data.Typeable (Typeable)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.BlockchainTime hiding (getSystemStart)
@@ -74,6 +75,8 @@ import           Ouroboros.Consensus.Fragment.InFuture (CheckInFuture,
                      ClockSkew)
 import qualified Ouroboros.Consensus.Fragment.InFuture as InFuture
 import           Ouroboros.Consensus.Ledger.Extended (ExtLedgerState (..))
+import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
+                     (ChainSyncBucketConfig (..))
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client.InFutureCheck as InFutureCheck
 import qualified Ouroboros.Consensus.Network.NodeToClient as NTC
 import qualified Ouroboros.Consensus.Network.NodeToNode as NTN
@@ -232,6 +235,9 @@ data LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk
 
       -- | See 'NTN.ChainSyncTimeout'
     , llrnChainSyncTimeout :: m NTN.ChainSyncTimeout
+
+      -- | See 'CsClient.ChainSyncBucketConfig'
+    , llrnChainSyncBucketConfig :: ChainSyncBucketConfig
 
       -- | How to run the data diffusion applications
       --
@@ -445,6 +451,7 @@ runWith RunNodeArgs{..} encAddrNtN decAddrNtN LowLevelRunNodeArgs{..} =
           (NTN.defaultCodecs codecConfig version encAddrNTN decAddrNTN)
           NTN.byteLimits
           llrnChainSyncTimeout
+          llrnChainSyncBucketConfig
           (reportMetric Diffusion.peerMetricsConfiguration peerMetrics)
           (NTN.mkHandlers nodeKernelArgs nodeKernel computePeers)
 
@@ -841,6 +848,7 @@ stdLowLevelRunNodeArgsIO RunNodeArgs{ rnProtocolInfo
     pure LowLevelRunNodeArgs
       { llrnBfcSalt
       , llrnChainSyncTimeout = fromMaybe stdChainSyncTimeout srnChainSyncTimeout
+      , llrnChainSyncBucketConfig = ChainSyncBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}
       , llrnCustomiseHardForkBlockchainTimeArgs = id
       , llrnKeepAliveRng
       , llrnChainDbArgsDefaults =
