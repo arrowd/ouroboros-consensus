@@ -97,6 +97,7 @@ import           Ouroboros.Consensus.Storage.ChainDB.API
 import           Ouroboros.Consensus.Util (whenJust)
 import           Ouroboros.Consensus.Util.Condense
 import           Ouroboros.Consensus.Util.IOLike
+import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Ouroboros.Consensus.Util.STM (Fingerprint (..),
                      WithFingerprint (..))
@@ -401,10 +402,11 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
             -- client's and server's clock as the tolerable clock skew.
 
         client :: StrictTVar m (AnchoredFragment (Header TestBlock))
+               -> LeakyBucket.Handler m
                -> Consensus ChainSyncClientPipelined
                     TestBlock
                     m
-        client varCandidate =
+        client varCandidate bucketHandler =
             chainSyncClient
               ConfigEnv {
                   chainDbView
@@ -419,6 +421,7 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                 , controlMessageSTM   = return Continue
                 , headerMetricsTracer = nullTracer
                 , varCandidate
+                , bucketHandler
                 }
 
     -- Set up the server
@@ -490,12 +493,12 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                  chainDbView
                  varCandidates
                  serverId
-                 maxBound $ \varCandidate -> do
+                 maxBound $ \varCandidate bucketHandler -> do
                    atomically $ modifyTVar varFinalCandidates $
                      Map.insert serverId varCandidate
                    result <-
                      runPipelinedPeer protocolTracer codecChainSyncId clientChannel $
-                       chainSyncClientPeerPipelined $ client varCandidate
+                       chainSyncClientPeerPipelined $ client varCandidate bucketHandler
                    atomically $ writeTVar varClientResult (Just (ClientFinished result))
                    return ()
               `catchAlsoLinked` \ex -> do

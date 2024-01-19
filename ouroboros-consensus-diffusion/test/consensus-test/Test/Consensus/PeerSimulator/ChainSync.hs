@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Test.Consensus.PeerSimulator.ChainSync (runChainSyncClient) where
@@ -16,7 +17,9 @@ import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client as CSClient
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client.InFutureCheck as InFutureCheck
 import           Ouroboros.Consensus.Util.Condense (Condense (..))
 import           Ouroboros.Consensus.Util.IOLike (Exception (fromException),
-                     IOLike, MonadCatch (try), StrictTVar)
+                     ExceptionInLinkedThread (ExceptionInLinkedThread), IOLike,
+                     MonadCatch (try), StrictTVar)
+import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Network.Block (Tip)
 import           Ouroboros.Network.Channel (createConnectedChannels)
 import           Ouroboros.Network.ControlMessage (ControlMessage (..))
@@ -51,8 +54,9 @@ basicChainSyncClient :: forall m.
   TopLevelConfig TestBlock ->
   ChainDbView m TestBlock ->
   StrictTVar m TestFragH ->
+  LeakyBucket.Handler m ->
   Consensus ChainSyncClientPipelined TestBlock m
-basicChainSyncClient tracer cfg chainDbView varCandidate =
+basicChainSyncClient tracer cfg chainDbView varCandidate bucketHandler =
   chainSyncClient
     CSClient.ConfigEnv {
         CSClient.mkPipelineDecision0     = pipelineDecisionLowHighMark 10 20
@@ -66,6 +70,7 @@ basicChainSyncClient tracer cfg chainDbView varCandidate =
       , CSClient.controlMessageSTM   = return Continue
       , CSClient.headerMetricsTracer = nullTracer
       , CSClient.varCandidate
+      , CSClient.bucketHandler
       }
   where
     dummyHeaderInFutureCheck ::
@@ -99,14 +104,14 @@ runChainSyncClient
   StateViewTracers {svtChainSyncExceptionsTracer}
   varCandidates
   =
-    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion $ \ varCandidate -> do
+    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion $ \ varCandidate bucketHandler -> do
       res <- try $ runConnectedPeersPipelinedWithLimits
         createConnectedChannels
         nullTracer
         codecChainSyncId
         chainSyncNoSizeLimits
         (timeLimitsChainSync chainSyncTimeouts)
-        (chainSyncClientPeerPipelined (basicChainSyncClient tracer cfg chainDbView varCandidate))
+        (chainSyncClientPeerPipelined (basicChainSyncClient tracer cfg chainDbView varCandidate bucketHandler))
         (chainSyncServerPeer server)
       case res of
         Left exn -> do
@@ -123,6 +128,12 @@ runChainSyncClient
               traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminated by GDD governor."
             _ ->
               pure ()
+          case fromException exn of
+            -- REVIEW: Where does it get wrapped in 'ExceptionInLinkedThread'?
+            -- LeakyBucket is supposed to unwrap it, but maybe somewhere else?
+            Just (ExceptionInLinkedThread _ e) | fromException e == Just CSClient.EmptyBucket -> do
+              traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminating because of empty bucket."
+            _ -> pure ()
         Right _ -> pure ()
   where
     ntnVersion :: NodeToNodeVersion

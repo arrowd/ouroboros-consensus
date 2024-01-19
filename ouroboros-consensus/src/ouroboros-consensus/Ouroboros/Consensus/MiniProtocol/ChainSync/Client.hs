@@ -64,6 +64,7 @@ import           Data.Kind (Type)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
+import           Data.Ratio ((%))
 import           Data.Typeable
 import           Data.Word (Word64)
 import           GHC.Generics (Generic)
@@ -94,6 +95,8 @@ import           Ouroboros.Consensus.Util.Assert (assertWithMsg)
 import           Ouroboros.Consensus.Util.EarlyExit (WithEarlyExit, exitEarly)
 import qualified Ouroboros.Consensus.Util.EarlyExit as EarlyExit
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.LeakyBucket (execAgainstBucket)
+import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Consensus.Util.STM (Fingerprint, Watcher (..),
                      WithFingerprint (..), withWatcher)
 import           Ouroboros.Network.AnchoredFragment (AnchoredFragment,
@@ -164,7 +167,7 @@ bracketChainSyncClient ::
     -- (de)register nodes (@peer@).
  -> peer
  -> NodeToNodeVersion
- -> (StrictTVar m (AnchoredFragment (Header blk)) -> m a)
+ -> (StrictTVar m (AnchoredFragment (Header blk)) -> LeakyBucket.Handler m -> m a)
  -> m a
 bracketChainSyncClient
     tracer
@@ -179,7 +182,9 @@ bracketChainSyncClient
         withWatcher
             "ChainSync.Client.rejectInvalidBlocks"
             (invalidBlockWatcher varCandidate)
-      $ body varCandidate
+      $ execAgainstBucket bucketConfig
+      $ \bucketHandler ->
+            body varCandidate bucketHandler
   where
     newCandidateVar = do
         varCandidate <- newTVarIO $ AF.Empty AF.AnchorGenesis
@@ -192,6 +197,13 @@ bracketChainSyncClient
     invalidBlockWatcher varCandidate =
         invalidBlockRejector
             tracer version getIsInvalidBlock (readTVar varCandidate)
+
+    -- TODO: Capacity and rate should come from configuration.
+    bucketConfig = LeakyBucket.Config {
+      capacity = 5000, -- ^ 10s worth of tokens
+      rate = 2 % 1000, -- ^ one token every 2ms
+      onEmpty = throwIO EmptyBucket
+      }
 
 -- Our task: after connecting to an upstream node, try to maintain an
 -- up-to-date header-only fragment representing their chain. We maintain
@@ -496,6 +508,7 @@ data DynamicEnv m blk = DynamicEnv {
   , controlMessageSTM   :: ControlMessageSTM m
   , headerMetricsTracer :: HeaderMetricsTracer m
   , varCandidate        :: StrictTVar m (AnchoredFragment (Header blk))
+  , bucketHandler       :: LeakyBucket.Handler m
   }
 
 -- | General values collectively needed by the top-level entry points
@@ -1668,6 +1681,9 @@ data ChainSyncClientException =
   |
     InFutureHeaderExceedsClockSkew !InFutureCheck.HeaderArrivalException
     -- ^ A header arrived from the far future.
+  |
+    EmptyBucket
+    -- ^ The peer lost its race against the bucket.
 
 deriving instance Show ChainSyncClientException
 
@@ -1694,11 +1710,15 @@ instance Eq ChainSyncClientException where
         (InFutureHeaderExceedsClockSkew a )
         (InFutureHeaderExceedsClockSkew a')
       = a == a'
+    (==)
+        EmptyBucket EmptyBucket
+      = True
 
     HeaderError{}                    == _ = False
     InvalidIntersection{}            == _ = False
     InvalidBlock{}                   == _ = False
     InFutureHeaderExceedsClockSkew{} == _ = False
+    EmptyBucket                      == _ = False
 
 instance Exception ChainSyncClientException
 

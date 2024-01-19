@@ -31,6 +31,8 @@ import           Ouroboros.Consensus.NodeId
 import           Ouroboros.Consensus.Protocol.BFT
 import qualified Ouroboros.Consensus.Storage.ChainDB.API as ChainDB
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.LeakyBucket (runAgainstBucket)
+import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Ouroboros.Consensus.Util.STM (Fingerprint (..),
                      WithFingerprint (..))
@@ -88,8 +90,10 @@ oneBenchRun
         void
           $ forkLinkedThread registry "ChainSyncClient"
           $ void
-          $ runPipelinedPeer nullTracer codecChainSyncId clientChannel
-          $ chainSyncClientPeerPipelined client
+          $ runAgainstBucket bucketConfig $ \bucketHandler ->
+            runPipelinedPeer nullTracer codecChainSyncId clientChannel
+              $ chainSyncClientPeerPipelined
+              $ client bucketHandler
 
         atomically $ do
             candidate <- readTVar varCandidate
@@ -118,8 +122,16 @@ oneBenchRun
             (clockSkewInSeconds 0)
             inTheYearOneBillion
 
-    client :: CSClient.Consensus ChainSyncClientPipelined B IO
-    client =
+    -- TODO: a proper way to disable the leaky bucket
+    bucketConfig :: LeakyBucket.Config IO
+    bucketConfig = LeakyBucket.Config {
+      LeakyBucket.capacity = 1,
+      LeakyBucket.rate = 1,
+      LeakyBucket.onEmpty = pure ()
+      }
+
+    client :: LeakyBucket.Handler IO -> CSClient.Consensus ChainSyncClientPipelined B IO
+    client bucketHandler =
         CSClient.chainSyncClient
             CSClient.ConfigEnv {
                 CSClient.chainDbView
@@ -134,6 +146,7 @@ oneBenchRun
               , CSClient.controlMessageSTM   = return Continue
               , CSClient.headerMetricsTracer = nullTracer
               , CSClient.varCandidate
+              , CSClient.bucketHandler
               }
 
     server :: ChainSyncServer H (Point B) (Tip B) IO ()
