@@ -328,6 +328,10 @@ data UnknownIntersectionState blk = UnknownIntersectionState {
     ourHeaderStateHistory :: !(HeaderStateHistory blk)
     -- ^ 'HeaderStateHistory' corresponding to the tip (most recent block) of
     -- 'ourFrag'.
+  ,
+    uBestBlockNo          :: !BlockNo
+    -- ^ The best block number of any header sent by this peer, to be used by
+    -- the limit on patience.
   }
   deriving (Generic)
 
@@ -380,6 +384,10 @@ data KnownIntersectionState blk = KnownIntersectionState {
     -- headers in 'theirFrag', including the anchor.
     --
     -- See the \"Candidate fragment size\" note above.
+  ,
+    kBestBlockNo            :: !BlockNo
+    -- ^ The best block number of any header sent by this peer, to be used by
+    -- the limit on patience.
   }
   deriving (Generic)
 
@@ -588,6 +596,7 @@ chainSyncClient cfgEnv dynEnv =
                 cfgEnv
                 dynEnv
                 (mkIntEnv headerInFutureCheck)
+                (BlockNo 0)
                 (ForkTooDeep GenesisPoint)
   where
     ConfigEnv {
@@ -660,6 +669,7 @@ chainSyncClient cfgEnv dynEnv =
                 ourFrag
               , theirFrag
               , theirHeaderStateHistory
+              , kBestBlockNo
               } = kis
         ourFrag' <- getCurrentChain
 
@@ -696,6 +706,7 @@ chainSyncClient cfgEnv dynEnv =
                             HeaderStateHistory.trim
                                 (AF.length trimmedCandidate)
                                 theirHeaderStateHistory
+                      , kBestBlockNo
                       }
 
 {-------------------------------------------------------------------------------
@@ -710,6 +721,8 @@ findIntersectionTop ::
   => ConfigEnv m blk
   -> DynamicEnv m blk
   -> InternalEnv m blk arrival judgment
+  -> BlockNo
+     -- ^ Peer's best block; needed to build an 'UnknownIntersectionState'.
   -> (Our (Tip blk) -> Their (Tip blk) -> ChainSyncClientResult)
      -- ^ Exception to throw when no intersection is found.
   -> Stateful m blk () (ClientPipelinedStIdle 'Z)
@@ -743,10 +756,12 @@ findIntersectionTop cfgEnv dynEnv intEnv =
     -- intersect, disconnect by throwing the exception obtained by calling the
     -- passed function.
     findIntersection ::
-        (Our (Tip blk) -> Their (Tip blk) -> ChainSyncClientResult)
+        BlockNo
+        -- ^ Peer's best block; needed to build an 'UnknownIntersectionState'.
+     -> (Our (Tip blk) -> Their (Tip blk) -> ChainSyncClientResult)
         -- ^ Exception to throw when no intersection is found.
      -> Stateful m blk () (ClientPipelinedStIdle 'Z)
-    findIntersection mkResult = Stateful $ \() -> do
+    findIntersection uBestBlockNo mkResult = Stateful $ \() -> do
         (ourFrag, ourHeaderStateHistory) <- atomically $ (,)
             <$> getCurrentChain
             <*> getHeaderStateHistory
@@ -763,6 +778,7 @@ findIntersectionTop cfgEnv dynEnv intEnv =
             uis = UnknownIntersectionState {
                 ourFrag               = ourFrag
               , ourHeaderStateHistory = ourHeaderStateHistory
+              , uBestBlockNo
               }
 
         return
@@ -789,6 +805,7 @@ findIntersectionTop cfgEnv dynEnv intEnv =
         let UnknownIntersectionState {
                 ourFrag
               , ourHeaderStateHistory
+              , uBestBlockNo
               } = uis
         traceWith tracer $
             TraceFoundIntersection
@@ -834,6 +851,7 @@ findIntersectionTop cfgEnv dynEnv intEnv =
                      , ourFrag
                      , theirFrag
                      , theirHeaderStateHistory
+                     , kBestBlockNo            = uBestBlockNo
                      }
             continueWithState kis $
                 knownIntersectionStateTop cfgEnv dynEnv intEnv theirTip
@@ -932,6 +950,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                           cfgEnv
                           dynEnv
                           intEnv
+                          (kBestBlockNo kis)
                           NoMoreIntersection
 
     requestNext ::
@@ -1038,6 +1057,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                         cfgEnv
                         dynEnv
                         intEnv
+                        (kBestBlockNo kis)
                         NoMoreIntersection
 
                 StillIntersects ledgerView kis' -> do
@@ -1067,6 +1087,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                   , ourFrag
                   , theirFrag
                   , theirHeaderStateHistory
+                  , kBestBlockNo
                   } = kis
             in
             case attemptRollback
@@ -1129,6 +1150,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                             , ourFrag                 = ourFrag
                             , theirFrag               = theirFrag'
                             , theirHeaderStateHistory = theirHeaderStateHistory'
+                            , kBestBlockNo
                             }
                   atomically $ writeTVar varCandidate theirFrag'
 
@@ -1354,6 +1376,7 @@ checkValid cfgEnv intEnv hdr theirTip kis ledgerView = do
           , ourFrag
           , theirFrag
           , theirHeaderStateHistory
+          , kBestBlockNo
           } = kis
 
     let hdrPoint = headerPoint hdr
@@ -1389,6 +1412,7 @@ checkValid cfgEnv intEnv hdr theirTip kis ledgerView = do
           , ourFrag                 = ourFrag
           , theirFrag               = theirFrag'
           , theirHeaderStateHistory = theirHeaderStateHistory'
+          , kBestBlockNo
           }
   where
     ConfigEnv {
