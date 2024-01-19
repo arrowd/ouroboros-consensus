@@ -1063,12 +1063,13 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                 StillIntersects ledgerView kis' -> do
                     kis'' <-
                         checkValid cfgEnv intEnv hdr theirTip kis' ledgerView
+                    kis''' <- checkLoP dynEnv hdr kis''
 
-                    atomically $ writeTVar varCandidate (theirFrag kis'')
+                    atomically $ writeTVar varCandidate (theirFrag kis''')
                     atomically
                       $ traceWith headerMetricsTracer (slotNo, arrivalTime)
 
-                    continueWithState kis''
+                    continueWithState kis'''
                       $ nextStep mkPipelineDecision n theirTip
 
     rollBackward ::
@@ -1422,6 +1423,24 @@ checkValid cfgEnv intEnv hdr theirTip kis ledgerView = do
     InternalEnv {
         disconnect
       } = intEnv
+
+-- | Check the limit on patience. If the block number of the new header is
+-- better than anything (valid) we have seen from this peer so far, we add a
+-- token to their leaky bucket and we remember this new record. Has to happen
+-- only after validation of the block.
+checkLoP ::
+  forall m blk.
+   ( IOLike m
+   , HasHeader (Header blk) )
+  => DynamicEnv m blk
+  -> Header blk
+  -> KnownIntersectionState blk
+  -> m (KnownIntersectionState blk)
+checkLoP dynEnv hdr kis@KnownIntersectionState{kBestBlockNo} =
+  if blockNo hdr > kBestBlockNo
+    then do LeakyBucket.fill (bucketHandler dynEnv) 1
+            pure $ kis{kBestBlockNo = blockNo hdr}
+    else pure kis
 
 {-------------------------------------------------------------------------------
   Utilities used in the *top functions
