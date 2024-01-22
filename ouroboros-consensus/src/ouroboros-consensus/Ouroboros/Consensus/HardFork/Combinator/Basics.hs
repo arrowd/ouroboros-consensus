@@ -208,7 +208,8 @@ distribTopLevelConfig ei tlc =
              (completeLedgerConfig'    ei cfgLedger)
              cfgBlock
              cfgCodec
-             cfgStorage))
+             cfgStorage
+             emptyCheckpointsMap))
     `hap`
       (getPerEraConsensusConfig $
          hardForkConsensusConfigPerEra (configConsensus tlc))

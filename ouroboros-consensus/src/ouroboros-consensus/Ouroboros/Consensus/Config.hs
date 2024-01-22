@@ -15,6 +15,7 @@ module Ouroboros.Consensus.Config (
     -- ** Checkpoints map
   , CheckpointsMap (..)
   , castCheckpointsMap
+  , emptyCheckpointsMap
     -- ** Derived extraction functions
   , configBlock
   , configCodec
@@ -73,15 +74,19 @@ newtype CheckpointsMap blk = CheckpointsMap {
 instance ( NoThunks (HeaderHash    blk)
          ) => NoThunks (CheckpointsMap blk)
 
+emptyCheckpointsMap :: CheckpointsMap blk
+emptyCheckpointsMap = mempty
+
 mkTopLevelConfig ::
      ConsensusConfig (BlockProtocol blk)
   -> LedgerConfig   blk
   -> BlockConfig    blk
   -> CodecConfig    blk
   -> StorageConfig  blk
+  -> CheckpointsMap blk
   -> TopLevelConfig blk
-mkTopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg =
-    TopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg mempty
+mkTopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg checkpointsMap =
+    TopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg checkpointsMap
 
 configConsensus :: TopLevelConfig blk -> ConsensusConfig (BlockProtocol blk)
 configConsensus = topLevelConfigProtocol
