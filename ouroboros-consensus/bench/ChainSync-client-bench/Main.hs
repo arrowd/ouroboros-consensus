@@ -127,6 +127,7 @@ oneBenchRun
     bucketConfig = LeakyBucket.Config {
       LeakyBucket.capacity = 1,
       LeakyBucket.rate = 1,
+      LeakyBucket.fillOnOverflow = True,
       LeakyBucket.onEmpty = pure ()
       }
 

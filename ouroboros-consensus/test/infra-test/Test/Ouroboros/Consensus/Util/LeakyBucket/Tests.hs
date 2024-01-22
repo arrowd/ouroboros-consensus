@@ -7,7 +7,7 @@
 
 module Test.Ouroboros.Consensus.Util.LeakyBucket.Tests (tests) where
 
-import           Control.Monad (foldM)
+import           Control.Monad (foldM, void)
 import           Control.Monad.IOSim (IOSim, runSimOrThrow)
 import           Data.Either (isLeft, isRight)
 import           Data.Functor ((<&>))
@@ -52,32 +52,41 @@ newtype Rate = Rate Rational
 instance Arbitrary Rate where
   arbitrary = Rate <$> arbitrary `suchThat` (> 0)
 
+newtype FillOnOverflow = FillOnOverflow Bool
+  deriving Show
+
+instance Arbitrary FillOnOverflow where
+  arbitrary = FillOnOverflow <$> arbitrary
+
 -- | Make a configuration from a 'Capacity', a 'Rate' and an 'onEmpty' action.
-config :: Capacity -> Rate -> m () -> Config m
-config (Capacity capacity) (Rate rate) onEmpty = Config{capacity, rate, onEmpty}
+config :: Capacity -> Rate -> FillOnOverflow -> m () -> Config m
+config (Capacity capacity) (Rate rate) (FillOnOverflow fillOnOverflow) onEmpty =
+  Config{capacity, rate, fillOnOverflow, onEmpty}
 
 data EmptyBucket = EmptyBucket
   deriving (Eq, Show)
 
 instance Exception EmptyBucket
 
--- | Make a configuration that throws 'EmptyBucket' from a 'Capacity' and a
--- 'Rate'.
-configThrow :: MonadThrow m => Capacity -> Rate -> Config m
-configThrow c r = config c r (throwIO EmptyBucket)
+-- | Make a configuration that fills on overflow and throws 'EmptyBucket' on
+-- empty bucket.
+configFillThrow :: MonadThrow m => Capacity -> Rate -> Config m
+configFillThrow c r = config c r (FillOnOverflow True) (throwIO EmptyBucket)
 
--- | A configuration that throws 'EmptyBucket' with capacity and rate 1.
-config11Throw :: MonadThrow m => Config m
-config11Throw = configThrow (Capacity 1) (Rate 1)
+-- | A configuration with capacity and rate 1, that fills on overflow and throws
+-- 'EmptyBucket' on empty bucket.
+config11FillThrow :: MonadThrow m => Config m
+config11FillThrow = configFillThrow (Capacity 1) (Rate 1)
 
--- | Make a configuration that does nothing on empty bucket from a 'Capacity'
--- and a 'Rate'.
-configPure :: Applicative m => Capacity -> Rate -> Config m
-configPure c r = config c r (pure ())
+-- | Make a configuration that fills on overflow and does nothing on empty
+-- bucket.
+configFillPure :: Applicative m => Capacity -> Rate -> Config m
+configFillPure c r = config c r (FillOnOverflow True) (pure ())
 
--- | A configuration that does nothing on empty bucket with capacity and rate 1.
-config11Pure :: Applicative m => Config m
-config11Pure = configPure (Capacity 1) (Rate 1)
+-- | A configuration with capacity 1 and rate 1, that fills on overflow and does
+-- nothing on empty bucket.
+config11FillPure :: Applicative m => Config m
+config11FillPure = configFillPure (Capacity 1) (Rate 1)
 
 -- | Whether to throw on empty bucket.
 newtype ThrowOnEmpty = ThrowOnEmpty Bool
@@ -86,11 +95,10 @@ newtype ThrowOnEmpty = ThrowOnEmpty Bool
 instance Arbitrary ThrowOnEmpty where
   arbitrary = ThrowOnEmpty <$> arbitrary
 
--- | Make a configuration from a 'Capacity', a 'Rate' and whether to
--- 'ThrowOnEmpty'.
-config' :: MonadThrow m => Capacity -> Rate -> ThrowOnEmpty -> Config m
-config' c r (ThrowOnEmpty True)  = configThrow c r
-config' c r (ThrowOnEmpty False) = configPure c r
+-- | Make a configuration that fills on overflow from whether to 'ThrowOnEmpty'.
+configFill' :: MonadThrow m => Capacity -> Rate -> ThrowOnEmpty -> Config m
+configFill' c r (ThrowOnEmpty True)  = configFillThrow c r
+configFill' c r (ThrowOnEmpty False) = configFillPure c r
 
 -- | Alias for 'runSimOrThrow' by analogy to 'ioProperty'.
 ioSimProperty :: forall a. (forall s. IOSim s a) -> a
@@ -127,9 +135,9 @@ picosecondsPerSecond = 1_000_000_000_000
 prop_playABit :: Property
 prop_playABit =
   ioSimProperty $
-    evalAgainstBucket config11Throw (\handler -> do
+    evalAgainstBucket config11FillThrow (\handler -> do
       threadDelay 0.5
-      fill handler 67
+      void $ fill handler 67
       threadDelay 0.9
     ) `shouldEvaluateTo` Snapshot{level = 1 % 10, time = Time 1.4}
 
@@ -138,9 +146,9 @@ prop_playABit =
 prop_playTooLong :: Property
 prop_playTooLong =
   ioSimProperty $
-    evalAgainstBucket config11Throw (\handler -> do
+    evalAgainstBucket config11FillThrow (\handler -> do
       threadDelay 0.5
-      fill handler 67
+      void $ fill handler 67
       threadDelay 1.1
     ) `shouldThrow` EmptyBucket
 
@@ -149,9 +157,9 @@ prop_playTooLong =
 prop_playTooLongHarmless :: Property
 prop_playTooLongHarmless =
   ioSimProperty $
-    evalAgainstBucket config11Pure (\handler -> do
+    evalAgainstBucket config11FillPure (\handler -> do
       threadDelay 0.5
-      fill handler 67
+      void $ fill handler 67
       threadDelay 1.1
     ) `shouldEvaluateTo` Snapshot{level = 0, time = Time 1.6}
 
@@ -170,11 +178,11 @@ prop_noRefill offset capacity@(Capacity c) rate@(Rate r) = do
   if
     | offset < 0 ->
       ioSimProperty $
-        evalAgainstBucket (configThrow capacity rate) (\_ -> threadDelay time)
+        evalAgainstBucket (configFillThrow capacity rate) (\_ -> threadDelay time)
         `shouldEvaluateTo` Snapshot{level, time = Time time}
     | offset > 0 ->
       ioSimProperty $
-        evalAgainstBucket (configThrow capacity rate) (\_ -> threadDelay time)
+        evalAgainstBucket (configFillThrow capacity rate) (\_ -> threadDelay time)
         `shouldThrow` EmptyBucket
     | otherwise ->
       error "prop_noRefill: do not use an offset of 0"
@@ -193,7 +201,7 @@ instance Exception NoPlumberException
 prop_propagateExceptions :: Property
 prop_propagateExceptions =
   ioSimProperty $
-    evalAgainstBucket config11Throw (\_ -> throwIO NoPlumberException)
+    evalAgainstBucket config11FillThrow (\_ -> throwIO NoPlumberException)
       `shouldThrow`
     NoPlumberException
 
@@ -201,7 +209,7 @@ prop_propagateExceptions =
 prop_propagateExceptionsIO :: Property
 prop_propagateExceptionsIO =
   ioProperty $
-    evalAgainstBucket config11Throw (\_ -> throwIO NoPlumberException)
+    evalAgainstBucket config11FillThrow (\_ -> throwIO NoPlumberException)
       `shouldThrow`
     NoPlumberException
 
@@ -226,7 +234,7 @@ genAction = frequency [
 applyActions :: MonadDelay m => Handler m -> [Action] -> m ()
 applyActions handler = mapM_ $ \case
   ThreadDelay t -> threadDelay t
-  Fill t -> fill handler t
+  Fill t -> void $ fill handler t
 
 -- | A model of what we expect the 'Action's to lead to, either an 'EmptyBucket'
 -- exception (if the bucket won the race) or a 'Snapshot' (otherwise).
@@ -257,6 +265,6 @@ prop_random capacity rate throwOnEmpty =
         classify (20 < nbActions && nbActions <= 50) "21-50 actions" $
         classify (50 < nbActions) "> 50 actions" $
         runSimOrThrow (
-          try $ evalAgainstBucket (config' capacity rate throwOnEmpty) $
+          try $ evalAgainstBucket (configFill' capacity rate throwOnEmpty) $
             flip applyActions actions
         ) === modelResult

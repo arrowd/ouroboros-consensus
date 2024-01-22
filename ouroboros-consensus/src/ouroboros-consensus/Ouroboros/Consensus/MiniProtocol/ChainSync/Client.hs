@@ -58,7 +58,7 @@ module Ouroboros.Consensus.MiniProtocol.ChainSync.Client (
   , TraceChainSyncClientEvent (..)
   ) where
 
-import           Control.Monad (join)
+import           Control.Monad (join, void)
 import           Control.Monad.Except (runExcept, throwError)
 import           Control.Tracer
 import           Data.Kind (Type)
@@ -209,7 +209,8 @@ bracketChainSyncClient
     bucketConfig = LeakyBucket.Config {
       capacity = fromInteger $ csbcCapacity csBucketConfig,
       rate = csbcRate csBucketConfig,
-      onEmpty = throwIO EmptyBucket
+      onEmpty = throwIO EmptyBucket,
+      fillOnOverflow = True
       }
 
 -- Our task: after connecting to an upstream node, try to maintain an
@@ -1445,7 +1446,7 @@ checkLoP ::
   -> m (KnownIntersectionState blk)
 checkLoP dynEnv hdr kis@KnownIntersectionState{kBestBlockNo} =
   if blockNo hdr > kBestBlockNo
-    then do LeakyBucket.fill (bucketHandler dynEnv) 1
+    then do void $ LeakyBucket.fill (bucketHandler dynEnv) 1
             pure $ kis{kBestBlockNo = blockNo hdr}
     else pure kis
 

@@ -29,7 +29,6 @@ module Ouroboros.Consensus.Util.LeakyBucket (
   , runAgainstBucket
   ) where
 
-import           Data.Functor (void)
 import           Data.Ratio ((%))
 import           Data.Time (DiffTime)
 import           Data.Time.Clock (diffTimeToPicoseconds)
@@ -44,11 +43,14 @@ import           Prelude hiding (init)
 
 -- | Configuration of a leaky bucket.
 data Config m = Config {
-  capacity :: Rational,
+  capacity       :: Rational,
   -- ^ Initial and maximal capacity of the bucket.
-  rate     :: Rational,
+  rate           :: Rational,
   -- ^ Tokens per second leaking off the bucket.
-  onEmpty  :: m ()
+  fillOnOverflow :: Bool,
+  -- ^ Whether to fill to capacity on overflow or to do nothing.
+  onEmpty        :: m ()
+  -- ^ A monadic action to trigger when the bucket is empty.
   }
 
 -- | Snapshot of a leaky bucket, giving the level and the associated time.
@@ -64,12 +66,16 @@ data Bucket m = Bucket {
   state  :: StrictTVar m Snapshot
   }
 
+-- | Whether filling the bucket overflew.
+newtype Overflew = Overflew Bool
+
 -- | The handler to a bucket: contains the API to interact with a running
 -- bucket.
 data Handler m = Handler {
-  fill :: Rational -> m ()
-  -- ^ Refill the bucket by the given amount. The bucket does not overflow but
-  -- silently gets filled to full capacity.
+  fill :: Rational -> m Overflew
+  -- ^ Refill the bucket by the given amount and returns whether the bucket
+  -- overflew. The bucket may silently get filled to full capacity or not get
+  -- filled depending on 'fillOnOverflow'.
   }
 
 -- | Create a bucket with the given configuration, then run the action against
@@ -95,7 +101,7 @@ runAgainstBucket config action = do
     leakThread <- async $ leak bucket
     handle rethrowUnwrap $ do
       link leakThread
-      result <- action $ Handler{fill = void . takeSnapshotFill bucket}
+      result <- action $ Handler{fill = (snd <$>) . takeSnapshotFill bucket}
       snapshot <- takeSnapshot bucket
       pure (snapshot, result)
   where
@@ -135,21 +141,24 @@ leak bucket@Bucket{config=Config{rate, onEmpty}} = do
 -- | Take a snapshot of the bucket, that is compute its state at the current
 -- time.
 takeSnapshot :: (MonadSTM m, MonadMonotonicTime m) => Bucket m -> m Snapshot
-takeSnapshot bucket = takeSnapshotFill bucket 0
+takeSnapshot bucket = fst <$> takeSnapshotFill bucket 0
 
 -- | Same as 'takeSnapshot' but also adds the given quantity to the resulting
--- level.
-takeSnapshotFill :: (MonadSTM m, MonadMonotonicTime m) => Bucket m -> Rational -> m Snapshot
-takeSnapshotFill Bucket{config=Config{rate,capacity}, state} toAdd = do
+-- level and returns whether this action overflew the bucket.
+takeSnapshotFill :: (MonadSTM m, MonadMonotonicTime m) => Bucket m -> Rational -> m (Snapshot, Overflew)
+takeSnapshotFill Bucket{config=Config{rate,capacity,fillOnOverflow}, state} toAdd = do
   newTime <- getMonotonicTime
   atomically $ do
     Snapshot {level, time} <- readTVar state
     let elapsed = diffTime newTime time
         leaked = diffTimeToSecondsRational elapsed * rate
-        newLevel = min capacity (max 0 (level - leaked) + toAdd)
+        levelLeaked = max 0 (level - leaked)
+        levelFilled = min capacity (levelLeaked + toAdd)
+        overflew = levelLeaked + toAdd > capacity
+        newLevel = if not overflew || fillOnOverflow then levelFilled else levelLeaked
         snapshot = Snapshot {time = newTime, level = newLevel}
     writeTVar state snapshot
-    pure snapshot
+    pure (snapshot, Overflew overflew)
 
 -- | Convert a 'DiffTime' to a 'Rational' number of seconds. This is similar to
 -- 'diffTimeToSeconds' but with picoseconds precision.
