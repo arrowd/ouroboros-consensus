@@ -65,6 +65,7 @@ import           Control.Monad.Except (Except, runExcept, throwError,
                      withExcept)
 import           Data.Coerce
 import           Data.Kind (Type)
+import qualified Data.Map.Strict as Map
 import           Data.Proxy
 import           Data.Void (Void)
 import           GHC.Generics (Generic)
@@ -74,6 +75,7 @@ import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
 import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Ticked
+import           Ouroboros.Consensus.Util (whenJust)
 import           Ouroboros.Consensus.Util.Assert
 import qualified Ouroboros.Consensus.Util.CBOR as Util.CBOR
 import           Ouroboros.Network.AnchoredSeq (Anchorable (..))
@@ -229,6 +231,8 @@ data HeaderEnvelopeError blk =
     -- We record the current tip as well as the prev hash of the new block.
   | UnexpectedPrevHash !(WithOrigin (HeaderHash blk)) !(ChainHash blk)
 
+  | CheckpointMismatch -- TODO args
+
     -- | Block specific envelope error
   | OtherHeaderEnvelopeError !(OtherHeaderEnvelopeError blk)
   deriving (Generic)
@@ -247,6 +251,7 @@ castHeaderEnvelopeError = \case
     UnexpectedBlockNo  expected actual   -> UnexpectedBlockNo  expected actual
     UnexpectedSlotNo   expected actual   -> UnexpectedSlotNo   expected actual
     UnexpectedPrevHash oldTip   prevHash -> UnexpectedPrevHash oldTip (castHash prevHash)
+    CheckpointMismatch                   -> CheckpointMismatch
 
 -- | Ledger-independent envelope validation (block, slot, hash)
 class ( HasHeader (Header blk)
@@ -310,6 +315,9 @@ validateEnvelope cfg ledgerView oldTip hdr = do
       throwError $ UnexpectedSlotNo expectedSlotNo actualSlotNo
     unless (checkPrevHash' (annTipHash <$> oldTip) actualPrevHash) $
       throwError $ UnexpectedPrevHash (annTipHash <$> oldTip) actualPrevHash
+    whenJust (Map.lookup actualBlockNo $ topLevelConfigCheckpoints cfg) $
+      \checkpoint -> unless (headerHash hdr == checkpoint) $
+        throwError CheckpointMismatch
     withExcept OtherHeaderEnvelopeError $
       additionalEnvelopeChecks cfg ledgerView hdr
   where

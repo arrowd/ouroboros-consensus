@@ -591,10 +591,11 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                            , (CoreId (CoreNodeId 1), VerKeyMockDSIGN 1)
                            ]
           }
-      , topLevelConfigLedger  = eraParams
-      , topLevelConfigBlock   = TestBlockConfig numCoreNodes
-      , topLevelConfigCodec   = TestBlockCodecConfig
-      , topLevelConfigStorage = TestBlockStorageConfig
+      , topLevelConfigLedger      = eraParams
+      , topLevelConfigBlock       = TestBlockConfig numCoreNodes
+      , topLevelConfigCodec       = TestBlockCodecConfig
+      , topLevelConfigStorage     = TestBlockStorageConfig
+      , topLevelConfigCheckpoints = mempty
       }
 
     eraParams :: HardFork.EraParams

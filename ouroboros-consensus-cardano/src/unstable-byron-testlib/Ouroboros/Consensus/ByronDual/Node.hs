@@ -107,6 +107,7 @@ protocolInfoDualByron abstractGenesis@ByronSpecGenesis{..} params credss =
                 dualStorageConfigMain = ByronStorageConfig concreteConfig
               , dualStorageConfigAux  = ByronSpecStorageConfig
               }
+          , topLevelConfigCheckpoints = mempty
           }
       , pInfoInitLedger = ExtLedgerState {
              ledgerState = DualLedgerState {

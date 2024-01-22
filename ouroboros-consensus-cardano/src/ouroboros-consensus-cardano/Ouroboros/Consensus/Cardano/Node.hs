@@ -76,6 +76,7 @@ import qualified Codec.CBOR.Encoding as CBOR
 import           Control.Exception (assert)
 import qualified Data.ByteString.Short as Short
 import           Data.Functor.These (These1 (..))
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.SOP.BasicFunctors
 import           Data.SOP.Counting
@@ -607,6 +608,7 @@ data instance ProtocolParams (CardanoBlock c) = ProtocolParamsCardano {
   , shelleyBasedProtocolParams    :: ProtocolParamsShelleyBased c
   , cardanoHardForkTriggers       :: CardanoHardForkTriggers
   , cardanoLedgerTransitionConfig :: L.TransitionConfig (L.LatestKnownEra c)
+  , cardanoCheckpoints            :: Map BlockNo (HeaderHash (CardanoBlock c))
   }
 
 type CardanoProtocolParams c = ProtocolParams (CardanoBlock c)
@@ -622,6 +624,7 @@ pattern CardanoProtocolParams ::
   -> ProtocolParams (ShelleyBlock (Praos  c) (ConwayEra  c))
   -> CardanoHardForkTriggers
   -> L.TransitionConfig (L.LatestKnownEra c)
+  -> Map BlockNo (HeaderHash (CardanoBlock c))
   -> CardanoProtocolParams c
 pattern CardanoProtocolParams {
         paramsByron
@@ -634,6 +637,7 @@ pattern CardanoProtocolParams {
       , paramsConway
       , hardForkTriggers
       , ledgerTransitionConfig
+      , checkpoints
       } =
     ProtocolParamsCardano {
         cardanoProtocolParamsPerEra = PerEraProtocolParams
@@ -649,6 +653,7 @@ pattern CardanoProtocolParams {
       , shelleyBasedProtocolParams = paramsShelleyBased
       , cardanoHardForkTriggers = hardForkTriggers
       , cardanoLedgerTransitionConfig = ledgerTransitionConfig
+      , cardanoCheckpoints = checkpoints
       }
 
 {-# COMPLETE CardanoProtocolParams #-}
@@ -701,6 +706,7 @@ protocolInfoCardano paramsCardano
         , triggerHardForkConway
         }
       , ledgerTransitionConfig
+      , checkpoints
       } = paramsCardano
 
     genesisShelley = ledgerTransitionConfig ^. L.tcShelleyGenesisL
@@ -1011,6 +1017,7 @@ protocolInfoCardano paramsCardano
             (Shelley.ShelleyStorageConfig tpraosSlotsPerKESPeriod k)
             (Shelley.ShelleyStorageConfig tpraosSlotsPerKESPeriod k)
             (Shelley.ShelleyStorageConfig tpraosSlotsPerKESPeriod k)
+      , topLevelConfigCheckpoints = checkpoints
       }
 
     -- When the initial ledger state is not in the Byron era, register the

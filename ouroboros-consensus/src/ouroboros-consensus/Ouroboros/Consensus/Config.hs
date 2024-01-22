@@ -24,6 +24,7 @@ module Ouroboros.Consensus.Config (
   ) where
 
 import           Data.Coerce
+import           Data.Map.Strict (Map)
 import           GHC.Generics (Generic)
 import           NoThunks.Class (NoThunks)
 import           Ouroboros.Consensus.Block.Abstract
@@ -37,11 +38,12 @@ import           Ouroboros.Consensus.Protocol.Abstract
 
 -- | The top-level node configuration
 data TopLevelConfig blk = TopLevelConfig {
-      topLevelConfigProtocol :: !(ConsensusConfig (BlockProtocol blk))
-    , topLevelConfigLedger   :: !(LedgerConfig blk)
-    , topLevelConfigBlock    :: !(BlockConfig blk)
-    , topLevelConfigCodec    :: !(CodecConfig blk)
-    , topLevelConfigStorage  :: !(StorageConfig blk)
+      topLevelConfigProtocol    :: !(ConsensusConfig (BlockProtocol blk))
+    , topLevelConfigLedger      :: !(LedgerConfig blk)
+    , topLevelConfigBlock       :: !(BlockConfig blk)
+    , topLevelConfigCodec       :: !(CodecConfig blk)
+    , topLevelConfigStorage     :: !(StorageConfig blk)
+    , topLevelConfigCheckpoints :: !(Map BlockNo (HeaderHash blk)) -- TODO newtype?
     }
   deriving (Generic)
 
@@ -50,6 +52,7 @@ instance ( ConsensusProtocol (BlockProtocol blk)
          , NoThunks (BlockConfig   blk)
          , NoThunks (CodecConfig   blk)
          , NoThunks (StorageConfig blk)
+         , NoThunks (HeaderHash    blk)
          ) => NoThunks (TopLevelConfig blk)
 
 mkTopLevelConfig ::
@@ -59,7 +62,8 @@ mkTopLevelConfig ::
   -> CodecConfig    blk
   -> StorageConfig  blk
   -> TopLevelConfig blk
-mkTopLevelConfig = TopLevelConfig
+mkTopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg =
+    TopLevelConfig prtclCfg ledgerCfg blockCfg codecCfg storageCfg mempty
 
 configConsensus :: TopLevelConfig blk -> ConsensusConfig (BlockProtocol blk)
 configConsensus = topLevelConfigProtocol
@@ -87,12 +91,14 @@ castTopLevelConfig ::
      , Coercible (BlockConfig   blk) (BlockConfig   blk')
      , Coercible (CodecConfig   blk) (CodecConfig   blk')
      , Coercible (StorageConfig blk) (StorageConfig blk')
+     , Coercible (HeaderHash    blk) (HeaderHash    blk')
      )
   => TopLevelConfig blk -> TopLevelConfig blk'
 castTopLevelConfig TopLevelConfig{..} = TopLevelConfig{
-      topLevelConfigProtocol = coerce topLevelConfigProtocol
-    , topLevelConfigLedger   = topLevelConfigLedger
-    , topLevelConfigBlock    = coerce topLevelConfigBlock
-    , topLevelConfigCodec    = coerce topLevelConfigCodec
-    , topLevelConfigStorage  = coerce topLevelConfigStorage
+      topLevelConfigProtocol    = coerce topLevelConfigProtocol
+    , topLevelConfigLedger      = topLevelConfigLedger
+    , topLevelConfigBlock       = coerce topLevelConfigBlock
+    , topLevelConfigCodec       = coerce topLevelConfigCodec
+    , topLevelConfigStorage     = coerce topLevelConfigStorage
+    , topLevelConfigCheckpoints = coerce topLevelConfigCheckpoints
     }

@@ -33,10 +33,11 @@ defaultCfg secParam = TopLevelConfig {
       , (CoreId (CoreNodeId 1), VerKeyMockDSIGN 1)
       ]
     }
-  , topLevelConfigLedger  = eraParams
-  , topLevelConfigBlock   = TestBlockConfig numCoreNodes
-  , topLevelConfigCodec   = TestBlockCodecConfig
-  , topLevelConfigStorage = TestBlockStorageConfig
+  , topLevelConfigLedger      = eraParams
+  , topLevelConfigBlock       = TestBlockConfig numCoreNodes
+  , topLevelConfigCodec       = TestBlockCodecConfig
+  , topLevelConfigStorage     = TestBlockStorageConfig
+  , topLevelConfigCheckpoints = mempty
   }
   where
     -- REVIEW: Make it 1s or a parameter?

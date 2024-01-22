@@ -181,6 +181,7 @@ dualTopLevelConfigMain TopLevelConfig{..} = TopLevelConfig{
     , topLevelConfigBlock    = dualBlockConfigMain   topLevelConfigBlock
     , topLevelConfigCodec    = dualCodecConfigMain   topLevelConfigCodec
     , topLevelConfigStorage  = dualStorageConfigMain topLevelConfigStorage
+    , topLevelConfigCheckpoints
     }
 
 {-------------------------------------------------------------------------------
