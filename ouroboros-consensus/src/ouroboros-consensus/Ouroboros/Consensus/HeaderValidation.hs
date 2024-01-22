@@ -231,7 +231,12 @@ data HeaderEnvelopeError blk =
     -- We record the current tip as well as the prev hash of the new block.
   | UnexpectedPrevHash !(WithOrigin (HeaderHash blk)) !(ChainHash blk)
 
-  | CheckpointMismatch -- TODO args
+    -- | The block at the given block number has a hash which does not match the
+    -- expected checkpoint hash.
+    --
+    -- > CheckpointMismatch blockNo expected actual
+    --
+  | CheckpointMismatch !BlockNo !(HeaderHash blk) !(HeaderHash blk)
 
     -- | Block specific envelope error
   | OtherHeaderEnvelopeError !(OtherHeaderEnvelopeError blk)
@@ -251,7 +256,7 @@ castHeaderEnvelopeError = \case
     UnexpectedBlockNo  expected actual   -> UnexpectedBlockNo  expected actual
     UnexpectedSlotNo   expected actual   -> UnexpectedSlotNo   expected actual
     UnexpectedPrevHash oldTip   prevHash -> UnexpectedPrevHash oldTip (castHash prevHash)
-    CheckpointMismatch                   -> CheckpointMismatch
+    CheckpointMismatch bNo expected actual -> CheckpointMismatch bNo expected actual
 
 -- | Ledger-independent envelope validation (block, slot, hash)
 class ( HasHeader (Header blk)
@@ -360,7 +365,7 @@ validateIfCheckpoint ::
 validateIfCheckpoint checkpointsMap hdr =
     whenJust (Map.lookup (blockNo hdr) $ unCheckpointsMap checkpointsMap) $
       \checkpoint -> when (headerHash hdr /= checkpoint) $
-        throwError CheckpointMismatch
+        throwError $ CheckpointMismatch (blockNo hdr) checkpoint (headerHash hdr)
 
 {-------------------------------------------------------------------------------
   Errors
