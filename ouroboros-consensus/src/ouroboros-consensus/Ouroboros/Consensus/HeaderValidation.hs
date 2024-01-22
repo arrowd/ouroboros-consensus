@@ -60,7 +60,7 @@ import           Cardano.Binary (enforceSize)
 import           Codec.CBOR.Decoding (Decoder)
 import           Codec.CBOR.Encoding (Encoding, encodeListLen)
 import           Codec.Serialise (decode, encode)
-import           Control.Monad (unless)
+import           Control.Monad (unless, when)
 import           Control.Monad.Except (Except, runExcept, throwError,
                      withExcept)
 import           Data.Coerce
@@ -315,9 +315,7 @@ validateEnvelope cfg ledgerView oldTip hdr = do
       throwError $ UnexpectedSlotNo expectedSlotNo actualSlotNo
     unless (checkPrevHash' (annTipHash <$> oldTip) actualPrevHash) $
       throwError $ UnexpectedPrevHash (annTipHash <$> oldTip) actualPrevHash
-    whenJust (Map.lookup actualBlockNo $ unCheckpointsMap (topLevelConfigCheckpoints cfg)) $
-      \checkpoint -> unless (headerHash hdr == checkpoint) $
-        throwError CheckpointMismatch
+    validateIfCheckpoint (topLevelConfigCheckpoints cfg) hdr
     withExcept OtherHeaderEnvelopeError $
       additionalEnvelopeChecks cfg ledgerView hdr
   where
@@ -353,6 +351,16 @@ validateEnvelope cfg ledgerView oldTip hdr = do
                                                  (annTipBlockNo tip)
 
     p = Proxy @blk
+
+validateIfCheckpoint ::
+  HasHeader (Header blk) =>
+  CheckpointsMap blk ->
+  Header blk ->
+  Except (HeaderEnvelopeError blk) ()
+validateIfCheckpoint checkpointsMap hdr =
+    whenJust (Map.lookup (blockNo hdr) $ unCheckpointsMap checkpointsMap) $
+      \checkpoint -> when (headerHash hdr /= checkpoint) $
+        throwError CheckpointMismatch
 
 {-------------------------------------------------------------------------------
   Errors
