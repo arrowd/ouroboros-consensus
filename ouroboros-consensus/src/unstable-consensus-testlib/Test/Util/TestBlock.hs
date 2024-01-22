@@ -546,7 +546,7 @@ singleNodeTestConfigWith codecConfig storageConfig k = TopLevelConfig {
     , topLevelConfigBlock       = TestBlockConfig numCoreNodes
     , topLevelConfigCodec       = codecConfig
     , topLevelConfigStorage     = storageConfig
-    , topLevelConfigCheckpoints = mempty
+    , topLevelConfigCheckpoints = emptyCheckpointsMap
     }
   where
     slotLength :: SlotLength

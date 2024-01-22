@@ -239,7 +239,7 @@ testCfg securityParam = TopLevelConfig {
     , topLevelConfigBlock   = TestBlockConfig numCoreNodes
     , topLevelConfigCodec   = TestBlockCodecConfig
     , topLevelConfigStorage = TestBlockStorageConfig
-    , topLevelConfigCheckpoints = mempty
+    , topLevelConfigCheckpoints = emptyCheckpointsMap
     }
   where
     slotLength :: SlotLength

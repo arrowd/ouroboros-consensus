@@ -42,7 +42,7 @@ protocolInfoBft numCoreNodes nid securityParam eraParams =
           , topLevelConfigBlock       = SimpleBlockConfig
           , topLevelConfigCodec       = SimpleCodecConfig
           , topLevelConfigStorage     = SimpleStorageConfig securityParam
-          , topLevelConfigCheckpoints = mempty
+          , topLevelConfigCheckpoints = emptyCheckpointsMap
           }
       , pInfoInitLedger = ExtLedgerState (genesisSimpleLedgerState addrDist)
                                          (genesisHeaderState ())

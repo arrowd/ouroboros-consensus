@@ -54,7 +54,7 @@ protocolInfoPraosRule numCoreNodes
         , topLevelConfigBlock       = SimpleBlockConfig
         , topLevelConfigCodec       = SimpleCodecConfig
         , topLevelConfigStorage     = SimpleStorageConfig (praosSecurityParam params)
-        , topLevelConfigCheckpoints = mempty
+        , topLevelConfigCheckpoints = emptyCheckpointsMap
         }
     , pInfoInitLedger = ExtLedgerState
         { ledgerState = genesisSimpleLedgerState addrDist

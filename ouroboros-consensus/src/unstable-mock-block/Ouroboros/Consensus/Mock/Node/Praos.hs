@@ -52,7 +52,7 @@ protocolInfoPraos numCoreNodes nid params eraParams eta0 evolvingStakeDist =
           , topLevelConfigBlock       = SimpleBlockConfig
           , topLevelConfigCodec       = SimpleCodecConfig
           , topLevelConfigStorage     = SimpleStorageConfig (praosSecurityParam params)
-          , topLevelConfigCheckpoints = mempty
+          , topLevelConfigCheckpoints = emptyCheckpointsMap
           }
       , pInfoInitLedger = ExtLedgerState {
             ledgerState = genesisSimpleLedgerState addrDist

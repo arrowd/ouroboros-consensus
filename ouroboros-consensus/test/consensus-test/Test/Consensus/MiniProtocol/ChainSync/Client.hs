@@ -595,7 +595,7 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
       , topLevelConfigBlock       = TestBlockConfig numCoreNodes
       , topLevelConfigCodec       = TestBlockCodecConfig
       , topLevelConfigStorage     = TestBlockStorageConfig
-      , topLevelConfigCheckpoints = mempty
+      , topLevelConfigCheckpoints = emptyCheckpointsMap
       }
 
     eraParams :: HardFork.EraParams
