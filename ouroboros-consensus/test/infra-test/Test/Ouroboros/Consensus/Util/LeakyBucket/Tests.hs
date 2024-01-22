@@ -79,6 +79,19 @@ configPure c r = config c r (pure ())
 config11Pure :: Applicative m => Config m
 config11Pure = configPure (Capacity 1) (Rate 1)
 
+-- | Whether to throw on empty bucket.
+newtype ThrowOnEmpty = ThrowOnEmpty Bool
+  deriving (Eq, Show)
+
+instance Arbitrary ThrowOnEmpty where
+  arbitrary = ThrowOnEmpty <$> arbitrary
+
+-- | Make a configuration from a 'Capacity', a 'Rate' and whether to
+-- 'ThrowOnEmpty'.
+config' :: MonadThrow m => Capacity -> Rate -> ThrowOnEmpty -> Config m
+config' c r (ThrowOnEmpty True)  = configThrow c r
+config' c r (ThrowOnEmpty False) = configPure c r
+
 -- | Alias for 'runSimOrThrow' by analogy to 'ioProperty'.
 ioSimProperty :: forall a. (forall s. IOSim s a) -> a
 ioSimProperty = runSimOrThrow
@@ -217,25 +230,25 @@ applyActions handler = mapM_ $ \case
 
 -- | A model of what we expect the 'Action's to lead to, either an 'EmptyBucket'
 -- exception (if the bucket won the race) or a 'Snapshot' (otherwise).
-modelActions :: Capacity -> Rate -> [Action] -> Either EmptyBucket Snapshot
-modelActions (Capacity capacity) (Rate rate) =
+modelActions :: Capacity -> Rate -> ThrowOnEmpty -> [Action] -> Either EmptyBucket Snapshot
+modelActions (Capacity capacity) (Rate rate) (ThrowOnEmpty throwOnEmpty) =
     foldM go $ Snapshot{level=capacity, time=Time 0}
   where
     go Snapshot{time, level} (Fill t) =
       Right Snapshot{time, level = min capacity (level + t)}
     go Snapshot{time, level} (ThreadDelay t) =
       let newTime = addTime t time
-          newLevel = level - diffTimeToSecondsRational t * rate
-       in if newLevel <= 0
+          newLevel = max 0 $ level - diffTimeToSecondsRational t * rate
+       in if newLevel <= 0 && throwOnEmpty
             then Left EmptyBucket
             else Right Snapshot{time = newTime, level = newLevel}
 
 -- | A bunch of test cases where we generate a list of 'Action's ,run them via
 -- 'applyActions' and compare the result to that of 'modelActions'.
-prop_random :: Capacity -> Rate -> Property
-prop_random capacity rate =
+prop_random :: Capacity -> Rate -> ThrowOnEmpty -> Property
+prop_random capacity rate throwOnEmpty =
   forAll (listOf1 genAction) $ \actions ->
-    let modelResult = modelActions capacity rate actions
+    let modelResult = modelActions capacity rate throwOnEmpty actions
         nbActions = length actions
      in classify (isLeft modelResult) "bucket finished empty" $
         classify (isRight modelResult) "bucket finished non-empty" $
@@ -244,6 +257,6 @@ prop_random capacity rate =
         classify (20 < nbActions && nbActions <= 50) "21-50 actions" $
         classify (50 < nbActions) "> 50 actions" $
         runSimOrThrow (
-          try $ evalAgainstBucket (configThrow capacity rate) $
+          try $ evalAgainstBucket (config' capacity rate throwOnEmpty) $
             flip applyActions actions
         ) === modelResult
