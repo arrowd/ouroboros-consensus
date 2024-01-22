@@ -146,7 +146,7 @@ takeSnapshotFill Bucket{config=Config{rate,capacity}, state} toAdd = do
     Snapshot {level, time} <- readTVar state
     let elapsed = diffTime newTime time
         leaked = diffTimeToSecondsRational elapsed * rate
-        newLevel = min capacity (level - leaked + toAdd)
+        newLevel = min capacity (max 0 (level - leaked) + toAdd)
         snapshot = Snapshot {time = newTime, level = newLevel}
     writeTVar state snapshot
     pure snapshot

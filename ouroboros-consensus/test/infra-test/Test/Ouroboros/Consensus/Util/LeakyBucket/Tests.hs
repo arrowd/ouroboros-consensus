@@ -153,7 +153,7 @@ prop_playTooLongHarmless =
       threadDelay 0.5
       fill handler 67
       threadDelay 1.1
-    ) `shouldEvaluateTo` Snapshot{level = (-1) % 10, time = Time 1.6}
+    ) `shouldEvaluateTo` Snapshot{level = 0, time = Time 1.6}
 
 -- | A bunch of test cases where we wait exactly as much as the bucket runs
 -- except for a given offset. If the offset is negative, we should get a
