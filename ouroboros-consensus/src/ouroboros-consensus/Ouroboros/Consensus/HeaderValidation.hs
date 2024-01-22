@@ -315,7 +315,7 @@ validateEnvelope cfg ledgerView oldTip hdr = do
       throwError $ UnexpectedSlotNo expectedSlotNo actualSlotNo
     unless (checkPrevHash' (annTipHash <$> oldTip) actualPrevHash) $
       throwError $ UnexpectedPrevHash (annTipHash <$> oldTip) actualPrevHash
-    whenJust (Map.lookup actualBlockNo $ topLevelConfigCheckpoints cfg) $
+    whenJust (Map.lookup actualBlockNo $ unCheckpointsMap (topLevelConfigCheckpoints cfg)) $
       \checkpoint -> unless (headerHash hdr == checkpoint) $
         throwError CheckpointMismatch
     withExcept OtherHeaderEnvelopeError $

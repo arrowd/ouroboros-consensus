@@ -76,7 +76,6 @@ import qualified Codec.CBOR.Encoding as CBOR
 import           Control.Exception (assert)
 import qualified Data.ByteString.Short as Short
 import           Data.Functor.These (These1 (..))
-import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.SOP.BasicFunctors
 import           Data.SOP.Counting
@@ -608,7 +607,7 @@ data instance ProtocolParams (CardanoBlock c) = ProtocolParamsCardano {
   , shelleyBasedProtocolParams    :: ProtocolParamsShelleyBased c
   , cardanoHardForkTriggers       :: CardanoHardForkTriggers
   , cardanoLedgerTransitionConfig :: L.TransitionConfig (L.LatestKnownEra c)
-  , cardanoCheckpoints            :: Map BlockNo (HeaderHash (CardanoBlock c))
+  , cardanoCheckpoints            :: CheckpointsMap (CardanoBlock c)
   }
 
 type CardanoProtocolParams c = ProtocolParams (CardanoBlock c)
@@ -624,7 +623,7 @@ pattern CardanoProtocolParams ::
   -> ProtocolParams (ShelleyBlock (Praos  c) (ConwayEra  c))
   -> CardanoHardForkTriggers
   -> L.TransitionConfig (L.LatestKnownEra c)
-  -> Map BlockNo (HeaderHash (CardanoBlock c))
+  -> CheckpointsMap (CardanoBlock c)
   -> CardanoProtocolParams c
 pattern CardanoProtocolParams {
         paramsByron

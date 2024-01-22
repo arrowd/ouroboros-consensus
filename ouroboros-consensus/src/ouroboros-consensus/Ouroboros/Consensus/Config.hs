@@ -1,16 +1,20 @@
-{-# LANGUAGE DeriveGeneric        #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE StandaloneDeriving   #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module Ouroboros.Consensus.Config (
     -- * The top-level node configuration
     TopLevelConfig (..)
   , castTopLevelConfig
   , mkTopLevelConfig
+    -- ** Checkpoints map
+  , CheckpointsMap (..)
+  , castCheckpointsMap
     -- ** Derived extraction functions
   , configBlock
   , configCodec
@@ -43,7 +47,7 @@ data TopLevelConfig blk = TopLevelConfig {
     , topLevelConfigBlock       :: !(BlockConfig blk)
     , topLevelConfigCodec       :: !(CodecConfig blk)
     , topLevelConfigStorage     :: !(StorageConfig blk)
-    , topLevelConfigCheckpoints :: !(Map BlockNo (HeaderHash blk)) -- TODO newtype?
+    , topLevelConfigCheckpoints :: !(CheckpointsMap blk)
     }
   deriving (Generic)
 
@@ -54,6 +58,20 @@ instance ( ConsensusProtocol (BlockProtocol blk)
          , NoThunks (StorageConfig blk)
          , NoThunks (HeaderHash    blk)
          ) => NoThunks (TopLevelConfig blk)
+
+-- | Checkpoints are block hashes that are expected to be present in the honest
+-- historical chain.
+--
+-- Each checkpoint is associated with a 'BlockNo', and any block with a
+-- 'BlockNo' in the checkpoints map is expected to have the corresponding hash.
+--
+newtype CheckpointsMap blk = CheckpointsMap {
+      unCheckpointsMap :: Map BlockNo (HeaderHash blk)
+    }
+  deriving (Generic, Monoid, Semigroup)
+
+instance ( NoThunks (HeaderHash    blk)
+         ) => NoThunks (CheckpointsMap blk)
 
 mkTopLevelConfig ::
      ConsensusConfig (BlockProtocol blk)
@@ -102,3 +120,8 @@ castTopLevelConfig TopLevelConfig{..} = TopLevelConfig{
     , topLevelConfigStorage     = coerce topLevelConfigStorage
     , topLevelConfigCheckpoints = coerce topLevelConfigCheckpoints
     }
+
+castCheckpointsMap ::
+     Coercible (HeaderHash blk) (HeaderHash blk')
+  => CheckpointsMap blk -> CheckpointsMap blk'
+castCheckpointsMap = coerce
