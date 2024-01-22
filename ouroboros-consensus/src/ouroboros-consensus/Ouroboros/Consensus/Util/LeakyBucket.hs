@@ -63,7 +63,8 @@ data Snapshot = Snapshot {
 -- | A bucket: a configuration and a state, which is just a TVar of snapshots.
 data Bucket m = Bucket {
   config :: Config m,
-  state  :: StrictTVar m Snapshot
+  state  :: StrictTVar m Snapshot,
+  paused :: StrictTVar m Bool
   }
 
 -- | Whether filling the bucket overflew.
@@ -72,10 +73,12 @@ newtype Overflew = Overflew Bool
 -- | The handler to a bucket: contains the API to interact with a running
 -- bucket.
 data Handler m = Handler {
-  fill :: Rational -> m Overflew
+  fill   :: Rational -> m Overflew,
   -- ^ Refill the bucket by the given amount and returns whether the bucket
   -- overflew. The bucket may silently get filled to full capacity or not get
   -- filled depending on 'fillOnOverflow'.
+  pause  :: m (),
+  resume :: m ()
   }
 
 -- | Create a bucket with the given configuration, then run the action against
@@ -101,7 +104,11 @@ runAgainstBucket config action = do
     leakThread <- async $ leak bucket
     handle rethrowUnwrap $ do
       link leakThread
-      result <- action $ Handler{fill = (snd <$>) . takeSnapshotFill bucket}
+      result <- action $ Handler {
+        fill = (snd <$>) . takeSnapshotFill bucket,
+        pause = takeSnapshot bucket >> atomically (writeTVar (paused bucket) True),
+        resume = takeSnapshot bucket >> atomically (writeTVar (paused bucket) False)
+        }
       snapshot <- takeSnapshot bucket
       pure (snapshot, result)
   where
@@ -123,7 +130,8 @@ init :: (MonadMonotonicTime m, MonadSTM m) => Config m -> m (Bucket m)
 init config@Config{capacity} = do
   time <- getMonotonicTime
   state <- uncheckedNewTVarM $ Snapshot{time, level = capacity}
-  pure $ Bucket{config, state}
+  paused <- uncheckedNewTVarM False
+  pure $ Bucket{config, state, paused}
 
 -- | Monadic action that calls 'threadDelay' until the bucket is empty, then
 -- returns @()@.
@@ -148,12 +156,13 @@ takeSnapshot bucket = fst <$> takeSnapshotFill bucket 0
 --
 -- REVIEW: What to do when 'toAdd' is negative?
 takeSnapshotFill :: (MonadSTM m, MonadMonotonicTime m) => Bucket m -> Rational -> m (Snapshot, Overflew)
-takeSnapshotFill Bucket{config=Config{rate,capacity,fillOnOverflow}, state} toAdd = do
+takeSnapshotFill Bucket{config=Config{rate,capacity,fillOnOverflow}, state, paused} toAdd = do
   newTime <- getMonotonicTime
   atomically $ do
     Snapshot {level, time} <- readTVar state
+    isPaused <- readTVar paused
     let elapsed = diffTime newTime time
-        leaked = diffTimeToSecondsRational elapsed * rate
+        leaked = if isPaused then 0 else (diffTimeToSecondsRational elapsed * rate)
         levelLeaked = max 0 (level - leaked)
         levelFilled = min capacity (levelLeaked + toAdd)
         overflew = levelLeaked + toAdd > capacity

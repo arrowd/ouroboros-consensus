@@ -23,6 +23,7 @@ import           Test.QuickCheck (Arbitrary (arbitrary), Gen, Property,
                      listOf1, scale, suchThat, (===))
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.QuickCheck (property, testProperty)
+import           Test.Util.TestEnv (adjustQuickCheckTests)
 
 tests :: TestTree
 tests = testGroup "Ouroboros.Consensus.Util.LeakyBucket" [
@@ -31,9 +32,11 @@ tests = testGroup "Ouroboros.Consensus.Util.LeakyBucket" [
   testProperty "play too long harmless" prop_playTooLongHarmless,
   testProperty "wait almost too long" (prop_noRefill (-1)),
   testProperty "wait just too long" (prop_noRefill 1),
+  testProperty "pause for a time" prop_playWithPause,
+  testProperty "resume too quickly" prop_playWithPauseTooLong,
   testProperty "propagates exceptions" prop_propagateExceptions,
   testProperty "propagates exceptions (IO)" prop_propagateExceptionsIO,
-  testProperty "random" prop_random
+  adjustQuickCheckTests (* 10) $ testProperty "random" prop_random
   ]
 
 --------------------------------------------------------------------------------
@@ -163,6 +166,28 @@ prop_playTooLongHarmless =
       threadDelay 1.1
     ) `shouldEvaluateTo` Snapshot{level = 0, time = Time 1.6}
 
+prop_playWithPause :: Property
+prop_playWithPause =
+  ioSimProperty $
+    evalAgainstBucket config11FillThrow (\handler -> do
+      threadDelay 0.5
+      pause handler
+      threadDelay 1.5
+      resume handler
+      threadDelay 0.4
+    ) `shouldEvaluateTo` Snapshot{level = 1 % 10, time = Time 2.4}
+
+prop_playWithPauseTooLong :: Property
+prop_playWithPauseTooLong =
+  ioSimProperty $
+    evalAgainstBucket config11FillThrow (\handler -> do
+      threadDelay 0.5
+      pause handler
+      threadDelay 1.5
+      resume handler
+      threadDelay 0.6
+    ) `shouldThrow` EmptyBucket
+
 -- | A bunch of test cases where we wait exactly as much as the bucket runs
 -- except for a given offset. If the offset is negative, we should get a
 -- snapshot. If the offset is positive, we should get an exception. NOTE: Do not
@@ -219,7 +244,7 @@ prop_propagateExceptionsIO =
 
 -- | Abstract “actions” to be run. We can either wait by some time or refill the
 -- bucket by some value.
-data Action = ThreadDelay DiffTime | Fill Rational
+data Action = ThreadDelay DiffTime | Fill Rational | Pause | Resume
   deriving (Eq, Show)
 
 -- | Random generation of 'Action's. The scales and frequencies are taken such
@@ -227,7 +252,9 @@ data Action = ThreadDelay DiffTime | Fill Rational
 genAction :: Gen Action
 genAction = frequency [
   (1, ThreadDelay . picosecondsToDiffTime <$> scale (* fromInteger picosecondsPerSecond) (arbitrary `suchThat` (>= 0))),
-  (9, Fill <$> scale (* 1_000_000_000_000_000) (arbitrary `suchThat` (>= 0)))
+  (1, Fill <$> scale (* 1_000_000_000_000_000) (arbitrary `suchThat` (>= 0))),
+  (1, pure Pause),
+  (1, pure Resume)
   ]
 
 -- | How to run the 'Action's in a monad.
@@ -235,28 +262,40 @@ applyActions :: MonadDelay m => Handler m -> [Action] -> m ()
 applyActions handler = mapM_ $ \case
   ThreadDelay t -> threadDelay t
   Fill t -> void $ fill handler t
+  Pause -> pause handler
+  Resume -> resume handler
+
+data BucketModel = BucketModel {
+  snapshot :: Snapshot,
+  paused   :: Bool
+  }
 
 -- | A model of what we expect the 'Action's to lead to, either an 'EmptyBucket'
 -- exception (if the bucket won the race) or a 'Snapshot' (otherwise).
-modelActions :: Capacity -> Rate -> ThrowOnEmpty -> [Action] -> Either EmptyBucket Snapshot
+modelActions :: Capacity -> Rate -> ThrowOnEmpty -> [Action] -> Either EmptyBucket BucketModel
 modelActions (Capacity capacity) (Rate rate) (ThrowOnEmpty throwOnEmpty) =
-    foldM go $ Snapshot{level=capacity, time=Time 0}
+    foldM go $ BucketModel{snapshot=Snapshot{level=capacity, time=Time 0}, paused=False}
   where
-    go Snapshot{time, level} (Fill t) =
-      Right Snapshot{time, level = min capacity (level + t)}
-    go Snapshot{time, level} (ThreadDelay t) =
-      let newTime = addTime t time
-          newLevel = max 0 $ level - diffTimeToSecondsRational t * rate
-       in if newLevel <= 0 && throwOnEmpty
-            then Left EmptyBucket
-            else Right Snapshot{time = newTime, level = newLevel}
+    go bucketModel@BucketModel{snapshot=Snapshot{time, level}} = \case
+      Fill t ->
+        Right bucketModel{snapshot=Snapshot{time, level = min capacity (level + t)}}
+      ThreadDelay t ->
+        let newTime = addTime t time
+            newLevel = if paused bucketModel then level else max 0 (level - diffTimeToSecondsRational t * rate)
+         in if newLevel <= 0 && throwOnEmpty
+              then Left EmptyBucket
+              else Right bucketModel{snapshot=Snapshot{time = newTime, level = newLevel}}
+      Pause ->
+        Right bucketModel{paused=True}
+      Resume ->
+        Right bucketModel{paused=False}
 
 -- | A bunch of test cases where we generate a list of 'Action's ,run them via
 -- 'applyActions' and compare the result to that of 'modelActions'.
 prop_random :: Capacity -> Rate -> ThrowOnEmpty -> Property
 prop_random capacity rate throwOnEmpty =
   forAll (listOf1 genAction) $ \actions ->
-    let modelResult = modelActions capacity rate throwOnEmpty actions
+    let modelResult = snapshot <$> modelActions capacity rate throwOnEmpty actions
         nbActions = length actions
      in classify (isLeft modelResult) "bucket finished empty" $
         classify (isRight modelResult) "bucket finished non-empty" $
