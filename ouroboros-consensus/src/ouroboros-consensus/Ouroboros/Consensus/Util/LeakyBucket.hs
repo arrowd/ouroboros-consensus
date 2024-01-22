@@ -145,6 +145,8 @@ takeSnapshot bucket = fst <$> takeSnapshotFill bucket 0
 
 -- | Same as 'takeSnapshot' but also adds the given quantity to the resulting
 -- level and returns whether this action overflew the bucket.
+--
+-- REVIEW: What to do when 'toAdd' is negative?
 takeSnapshotFill :: (MonadSTM m, MonadMonotonicTime m) => Bucket m -> Rational -> m (Snapshot, Overflew)
 takeSnapshotFill Bucket{config=Config{rate,capacity,fillOnOverflow}, state} toAdd = do
   newTime <- getMonotonicTime
