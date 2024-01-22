@@ -56,24 +56,28 @@ instance Arbitrary Rate where
 config :: Capacity -> Rate -> m () -> Config m
 config (Capacity capacity) (Rate rate) onEmpty = Config{capacity, rate, onEmpty}
 
--- | Same as 'config' but with capacity 1 and rate 1.
-config1 :: m () -> Config m
-config1 = config (Capacity 1) (Rate 1)
-
 data EmptyBucket = EmptyBucket
   deriving (Eq, Show)
 
 instance Exception EmptyBucket
 
--- | Same as 'config' but the action is always to throw the 'EmptyBucket'
--- exception.
-config' :: MonadThrow m => Capacity -> Rate -> Config m
-config' c r = config c r (throwIO EmptyBucket)
+-- | Make a configuration that throws 'EmptyBucket' from a 'Capacity' and a
+-- 'Rate'.
+configThrow :: MonadThrow m => Capacity -> Rate -> Config m
+configThrow c r = config c r (throwIO EmptyBucket)
 
--- | Same as 'config' but with capacity 1 and rate 1 and the action is always to
--- throw the 'EmptyBucket' exception.
-config1' :: MonadThrow m => Config m
-config1' = config' (Capacity 1) (Rate 1)
+-- | A configuration that throws 'EmptyBucket' with capacity and rate 1.
+config11Throw :: MonadThrow m => Config m
+config11Throw = configThrow (Capacity 1) (Rate 1)
+
+-- | Make a configuration that does nothing on empty bucket from a 'Capacity'
+-- and a 'Rate'.
+configPure :: Applicative m => Capacity -> Rate -> Config m
+configPure c r = config c r (pure ())
+
+-- | A configuration that does nothing on empty bucket with capacity and rate 1.
+config11Pure :: Applicative m => Config m
+config11Pure = configPure (Capacity 1) (Rate 1)
 
 -- | Alias for 'runSimOrThrow' by analogy to 'ioProperty'.
 ioSimProperty :: forall a. (forall s. IOSim s a) -> a
@@ -110,7 +114,7 @@ picosecondsPerSecond = 1_000_000_000_000
 prop_playABit :: Property
 prop_playABit =
   ioSimProperty $
-    evalAgainstBucket config1' (\handler -> do
+    evalAgainstBucket config11Throw (\handler -> do
       threadDelay 0.5
       fill handler 67
       threadDelay 0.9
@@ -121,7 +125,7 @@ prop_playABit =
 prop_playTooLong :: Property
 prop_playTooLong =
   ioSimProperty $
-    evalAgainstBucket config1' (\handler -> do
+    evalAgainstBucket config11Throw (\handler -> do
       threadDelay 0.5
       fill handler 67
       threadDelay 1.1
@@ -132,7 +136,7 @@ prop_playTooLong =
 prop_playTooLongHarmless :: Property
 prop_playTooLongHarmless =
   ioSimProperty $
-    evalAgainstBucket (config1 (pure ())) (\handler -> do
+    evalAgainstBucket config11Pure (\handler -> do
       threadDelay 0.5
       fill handler 67
       threadDelay 1.1
@@ -153,11 +157,11 @@ prop_noRefill offset capacity@(Capacity c) rate@(Rate r) = do
   if
     | offset < 0 ->
       ioSimProperty $
-        evalAgainstBucket (config' capacity rate) (\_ -> threadDelay time)
+        evalAgainstBucket (configThrow capacity rate) (\_ -> threadDelay time)
         `shouldEvaluateTo` Snapshot{level, time = Time time}
     | offset > 0 ->
       ioSimProperty $
-        evalAgainstBucket (config' capacity rate) (\_ -> threadDelay time)
+        evalAgainstBucket (configThrow capacity rate) (\_ -> threadDelay time)
         `shouldThrow` EmptyBucket
     | otherwise ->
       error "prop_noRefill: do not use an offset of 0"
@@ -176,7 +180,7 @@ instance Exception NoPlumberException
 prop_propagateExceptions :: Property
 prop_propagateExceptions =
   ioSimProperty $
-    evalAgainstBucket config1' (\_ -> throwIO NoPlumberException)
+    evalAgainstBucket config11Throw (\_ -> throwIO NoPlumberException)
       `shouldThrow`
     NoPlumberException
 
@@ -184,7 +188,7 @@ prop_propagateExceptions =
 prop_propagateExceptionsIO :: Property
 prop_propagateExceptionsIO =
   ioProperty $
-    evalAgainstBucket config1' (\_ -> throwIO NoPlumberException)
+    evalAgainstBucket config11Throw (\_ -> throwIO NoPlumberException)
       `shouldThrow`
     NoPlumberException
 
@@ -240,6 +244,6 @@ prop_random capacity rate =
         classify (20 < nbActions && nbActions <= 50) "21-50 actions" $
         classify (50 < nbActions) "> 50 actions" $
         runSimOrThrow (
-          try $ evalAgainstBucket (config' capacity rate) $
+          try $ evalAgainstBucket (configThrow capacity rate) $
             flip applyActions actions
         ) === modelResult
