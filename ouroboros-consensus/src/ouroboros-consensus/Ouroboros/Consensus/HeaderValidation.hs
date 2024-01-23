@@ -54,8 +54,6 @@ module Ouroboros.Consensus.HeaderValidation (
   , encodeHeaderState
     -- * Type family instances
   , Ticked (..)
-    -- * Exposed for testing
-  , validateIfCheckpoint
   ) where
 
 import           Cardano.Binary (enforceSize)

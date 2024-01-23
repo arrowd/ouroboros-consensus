@@ -22,24 +22,40 @@ tests = testGroup "HeaderValidation"
     ]
   ]
 
--- | Make a test block from the length of the hash and the word64
+-- | Make a test block from the length of the hash and the Word64
 -- to create it.
 mkTestBlock :: QC.NonNegative Int -> Word64 -> TestBlock
 mkTestBlock (QC.NonNegative n) h =
     successorBlockWithPayload
-      (TestHash $ h :| replicate (n-1) h)
-      (fromIntegral n)
+      (TestHash $ h :| replicate n h)
+      (fromIntegral n + 1)
       ()
 
--- | Like validateIfCheckpoint, but takes a list of blocks to use as
+-- | Like 'validateHeader', but takes a list of blocks to use as
 -- checkpoints.
-validateIfCheckpointBlocks
-  :: [TestBlock] -> TestBlock -> Either (HeaderEnvelopeError TestBlock) ()
-validateIfCheckpointBlocks xs x =
-    runExcept $
-      validateIfCheckpoint
-        (CheckpointsMap $ Map.fromList [ (blockNo b, blockHash b) | b <- xs])
-        (getHeader x)
+validateHeaderBlocks ::
+     [TestBlock]
+  -> TestBlock
+  -> Either (HeaderError TestBlock) (HeaderState TestBlock)
+validateHeaderBlocks xs x =
+    let
+      checkpoints = CheckpointsMap $ Map.fromList [ (blockNo b, blockHash b) | b <- xs]
+      cfg = singleNodeTestConfig {topLevelConfigCheckpoints = checkpoints}
+      h = getHeader x
+      -- Chose the header state carefully so it doesn't cause validation to fail
+      annTip =
+        case headerPrevHash h of
+          GenesisHash -> Origin
+          BlockHash hsh -> NotOrigin $ AnnTip (blockSlot x - 1) (blockNo x - 1) hsh
+      headerState =
+        tickHeaderState
+          (topLevelConfigProtocol cfg)
+          ()
+          0
+          (HeaderState annTip ())
+     in
+      runExcept $
+        validateHeader cfg () h headerState
 
 prop_validateIfCheckpoint_nonCheckpoint
   :: [QC.NonNegative Int] -> QC.NonNegative Int -> QC.Property
@@ -47,9 +63,10 @@ prop_validateIfCheckpoint_nonCheckpoint xs x0 =
     let
       blks = map (`mkTestBlock` 0) $ filter (/= x0) xs
      in
-      case validateIfCheckpointBlocks blks (mkTestBlock x0 0) of
-        Left _  ->
+      case validateHeaderBlocks blks (mkTestBlock x0 0) of
+        Left e ->
           QC.counterexample "checkpoint validation should not fail on other blocks than checkpoints" $
+          QC.counterexample (show e) $
           QC.property False
         Right _ -> QC.property True
 
@@ -59,9 +76,10 @@ prop_validateIfCheckpoint_checkpoint_matches xs x =
     let
       blks = map (`mkTestBlock` 0) (x:xs)
      in
-      case validateIfCheckpointBlocks blks (mkTestBlock x 0) of
-        Left _  ->
+      case validateHeaderBlocks blks (mkTestBlock x 0) of
+        Left e  ->
           QC.counterexample "checkpoint matches should be accepted" $
+          QC.counterexample (show e) $
           QC.property False
         Right _ -> QC.property True
 
@@ -71,8 +89,12 @@ prop_validateIfCheckpoint_checkpoint_mismatches xs x =
     let
       blks = map (`mkTestBlock` 0) (x:xs)
      in
-      case validateIfCheckpointBlocks blks (mkTestBlock x 1) of
-        Left _  -> QC.property True
+      case validateHeaderBlocks blks (mkTestBlock x 1) of
+        Left (HeaderEnvelopeError CheckpointMismatch{})  -> QC.property True
+        Left e  ->
+          QC.counterexample "checkpoint mismatches should be rejected with CheckpointMismatched" $
+          QC.counterexample (show e) $
+          QC.property False
         Right _ ->
           QC.counterexample "checkpoint mismatches should be rejected" $
           QC.property False
