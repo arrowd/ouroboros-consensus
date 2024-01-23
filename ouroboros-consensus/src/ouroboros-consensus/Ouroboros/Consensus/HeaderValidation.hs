@@ -360,10 +360,10 @@ validateEnvelope cfg ledgerView oldTip hdr = do
     p = Proxy @blk
 
 validateIfCheckpoint ::
-  HasHeader (Header blk) =>
-  CheckpointsMap blk ->
-  Header blk ->
-  Except (HeaderEnvelopeError blk) ()
+     HasHeader (Header blk)
+  => CheckpointsMap blk
+  -> Header blk
+  -> Except (HeaderEnvelopeError blk) ()
 validateIfCheckpoint checkpointsMap hdr =
     whenJust (Map.lookup (blockNo hdr) $ unCheckpointsMap checkpointsMap) $
       \checkpoint -> when (headerHash hdr /= checkpoint) $
