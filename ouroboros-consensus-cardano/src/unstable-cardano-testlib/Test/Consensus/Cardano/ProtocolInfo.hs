@@ -40,6 +40,7 @@ import           Ouroboros.Consensus.Cardano.Node (CardanoHardForkConstraints,
                      CardanoHardForkTriggers (..), ProtocolParams (..),
                      TriggerHardFork (TriggerHardForkAtEpoch, TriggerHardForkNotDuringThisExecution),
                      protocolInfoCardano)
+import           Ouroboros.Consensus.Config (emptyCheckpointsMap)
 import           Ouroboros.Consensus.Config.SecurityParam (SecurityParam (..))
 import qualified Ouroboros.Consensus.Mempool as Mempool
 import           Ouroboros.Consensus.Node.ProtocolInfo (NumCoreNodes (..),
@@ -326,7 +327,7 @@ mkTestProtocolInfo
               SL.exampleAlonzoGenesis
               SL.exampleConwayGenesis
           )
-          mempty
+          emptyCheckpointsMap
         )
 
   where
