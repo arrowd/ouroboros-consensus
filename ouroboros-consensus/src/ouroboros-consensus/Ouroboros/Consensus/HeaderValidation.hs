@@ -254,10 +254,10 @@ castHeaderEnvelopeError :: ( HeaderHash blk ~ HeaderHash blk'
                            )
                         => HeaderEnvelopeError blk -> HeaderEnvelopeError blk'
 castHeaderEnvelopeError = \case
-    OtherHeaderEnvelopeError err         -> OtherHeaderEnvelopeError err
-    UnexpectedBlockNo  expected actual   -> UnexpectedBlockNo  expected actual
-    UnexpectedSlotNo   expected actual   -> UnexpectedSlotNo   expected actual
-    UnexpectedPrevHash oldTip   prevHash -> UnexpectedPrevHash oldTip (castHash prevHash)
+    OtherHeaderEnvelopeError err           -> OtherHeaderEnvelopeError err
+    UnexpectedBlockNo  expected actual     -> UnexpectedBlockNo  expected actual
+    UnexpectedSlotNo   expected actual     -> UnexpectedSlotNo   expected actual
+    UnexpectedPrevHash oldTip   prevHash   -> UnexpectedPrevHash oldTip (castHash prevHash)
     CheckpointMismatch bNo expected actual -> CheckpointMismatch bNo expected actual
 
 -- | Ledger-independent envelope validation (block, slot, hash)
