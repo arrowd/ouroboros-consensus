@@ -33,7 +33,7 @@ import qualified Codec.CBOR.Read as CBOR
 import qualified Codec.CBOR.Write as CBOR
 import           Codec.Serialise (decode)
 import           Control.Monad (unless, void)
-import           Control.Monad.Except
+import           Control.Monad.Except (runExceptT)
 import           Control.Tracer
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.List as List
@@ -47,8 +47,6 @@ import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Ledger.Tables.Utils
 import           Ouroboros.Consensus.Storage.LedgerDB.API
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq
 import           Ouroboros.Consensus.Util.IOLike
@@ -182,9 +180,3 @@ loadSnapshot ccfg fs@(SomeHasFS hasFS) ds = do
                 unless (BSL.null extra) $ error "Trailing bytes in snapshot"
                 pure x
           Right . (,pt) <$> empty extLedgerSt values (newInMemoryLedgerTablesHandle fs)
-
-{-------------------------------------------------------------------------------
-  Traces
--------------------------------------------------------------------------------}
-
-data instance FlavorImplSpecificTrace '(FlavorV2, InMemory) deriving (Eq, Show)

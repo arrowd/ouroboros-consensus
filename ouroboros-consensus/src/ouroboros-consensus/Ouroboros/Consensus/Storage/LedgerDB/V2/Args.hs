@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -7,14 +9,23 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Ouroboros.Consensus.Storage.LedgerDB.V2.Args () where
+module Ouroboros.Consensus.Storage.LedgerDB.V2.Args (
+    FlavorImplSpecificTrace
+  , HandleArgs (..)
+  , LedgerDbFlavorArgs (..)
+  ) where
 
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
+import           GHC.Generics
+import           NoThunks.Class
 
-instance HasFlavorArgs '(FlavorV2, InMemory) m where
-  data instance LedgerDbFlavorArgs '(FlavorV2, InMemory) m = V2InMemoryArgs
-  defaultFlavorArgs = V2InMemoryArgs
+data LedgerDbFlavorArgs m = V2Args HandleArgs
 
-instance HasFlavorArgs '(FlavorV2, OnDisk) m where
-  data instance LedgerDbFlavorArgs '(FlavorV2, OnDisk) m = V2LSMArgs
-  defaultFlavorArgs = V2LSMArgs
+data HandleArgs =
+    InMemoryHandleArgs
+  | LSMHandleArgs
+  deriving (Generic, NoThunks)
+
+data FlavorImplSpecificTrace =
+    FlavorImplSpecificTraceInMemory
+  | FlavorImplSpecificTraceOnDisk
+  deriving (Show, Eq)

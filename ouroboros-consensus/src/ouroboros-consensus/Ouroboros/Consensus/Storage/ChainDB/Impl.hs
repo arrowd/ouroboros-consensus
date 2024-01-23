@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE ViewPatterns        #-}
 
 module Ouroboros.Consensus.Storage.ChainDB.Impl (
     -- * Initialization
@@ -79,7 +78,7 @@ import qualified Ouroboros.Network.AnchoredFragment as AF
 -------------------------------------------------------------------------------}
 
 withDB ::
-     forall m blk a ldbImpl.
+     forall m blk a.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
@@ -88,13 +87,13 @@ withDB ::
      , SerialiseDiskConstraints blk
      , MonadBase m m
      )
-  => Complete Args.ChainDbArgs ldbImpl m blk
+  => Complete Args.ChainDbArgs m blk
   -> (ChainDB m blk -> m a)
   -> m a
 withDB args = bracket (fst <$> openDBInternal args True) API.closeDB
 
 openDB ::
-     forall m blk ldbImpl.
+     forall m blk.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
@@ -103,12 +102,12 @@ openDB ::
      , SerialiseDiskConstraints blk
      , MonadBase m m
      )
-  => Complete Args.ChainDbArgs ldbImpl m blk
+  => Complete Args.ChainDbArgs m blk
   -> m (ChainDB m blk)
 openDB args = fst <$> openDBInternal args True
 
 openDBInternal ::
-     forall m blk ldbImpl.
+     forall m blk.
      ( IOLike m
      , LedgerSupportsProtocol blk
      , InspectLedger blk
@@ -118,7 +117,7 @@ openDBInternal ::
      , HasCallStack
      , MonadBase m m
      )
-  => Complete Args.ChainDbArgs ldbImpl m blk
+  => Complete Args.ChainDbArgs m blk
   -> Bool -- ^ 'True' = Launch background tasks
   -> m (ChainDB m blk, Internal m blk)
 openDBInternal args@Args.ChainDbArgs{} launchBgTasks = runWithTempRegistry $ do
@@ -197,7 +196,7 @@ openDBInternal args@Args.ChainDbArgs{} launchBgTasks = runWithTempRegistry $ do
                     , cdbNextIteratorKey = varNextIteratorKey
                     , cdbNextFollowerKey = varNextFollowerKey
                     , cdbCopyLock        = varCopyLock
-                    , cdbTracer          = SomeChainDbTracer tracer
+                    , cdbTracer          = tracer
                     , cdbRegistry        = Args.cdbsRegistry cdbSpecificArgs
                     , cdbGcDelay         = Args.cdbsGcDelay cdbSpecificArgs
                     , cdbGcInterval      = Args.cdbsGcInterval cdbSpecificArgs
@@ -305,8 +304,7 @@ closeDB (CDBHandle varState) = do
 
       chain <- atomically $ readTVar cdbChain
 
-      let SomeChainDbTracer (contramap TraceOpenEvent -> trcr) = cdbTracer
-      traceWith trcr $ ClosedDB
+      traceWith (TraceOpenEvent `contramap` cdbTracer) $ ClosedDB
         (castPoint $ AF.anchorPoint chain)
         (castPoint $ AF.headPoint chain)
 

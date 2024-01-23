@@ -6,7 +6,6 @@
 {-# LANGUAGE RecordWildCards      #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns         #-}
 
 -- | Operations involving chain selection: the initial chain selection and
 -- adding a block.
@@ -252,8 +251,8 @@ addBlockAsync
   -> InvalidBlockPunishment m
   -> blk
   -> m (AddBlockPromise m blk)
-addBlockAsync CDB { cdbTracer = SomeChainDbTracer ((TraceAddBlockEvent >$<) -> trcr), cdbBlocksToAdd } =
-    addBlockToAdd trcr cdbBlocksToAdd
+addBlockAsync CDB { cdbTracer, cdbBlocksToAdd } =
+    addBlockToAdd (TraceAddBlockEvent >$< cdbTracer) cdbBlocksToAdd
 
 -- | Add a block to the ChainDB, /synchronously/.
 --
@@ -332,7 +331,7 @@ addBlockSync cdb@CDB {..} BlockToAdd { blockToAdd = b, .. } = do
     deliverProcessed newTip
   where
     addBlockTracer :: Tracer m (TraceAddBlockEvent blk)
-    SomeChainDbTracer ((TraceAddBlockEvent >$<) -> addBlockTracer) = cdbTracer
+    addBlockTracer = TraceAddBlockEvent >$< cdbTracer
 
     hdr :: Header blk
     hdr = getHeader b
@@ -413,7 +412,7 @@ chainSelectionForFutureBlocks cdb@CDB{..} blockCache = do
       chainSelectionForBlock cdb blockCache hdr punish
     atomically $ Query.getTipPoint cdb
   where
-    SomeChainDbTracer ((TraceAddBlockEvent >$<) -> tracer) = cdbTracer
+    tracer = TraceAddBlockEvent >$< cdbTracer
 
 -- | Trigger chain selection for the given block.
 --
@@ -538,9 +537,9 @@ chainSelectionForBlock cdb@CDB{..} blockCache hdr punish = withRegistry $ \rr ->
     isEBB = headerToIsEBB hdr
 
     addBlockTracer :: Tracer m (TraceAddBlockEvent blk)
-    SomeChainDbTracer ((TraceAddBlockEvent >$<) -> addBlockTracer) = cdbTracer
-    SomeChainDbTracer ((TraceAddBlockEvent . AddBlockValidation >$<) -> validationTracer) = cdbTracer
-    SomeChainDbTracer ((TraceAddBlockEvent . PipeliningEvent >$<) -> pipeliningTracer) = cdbTracer
+    addBlockTracer = TraceAddBlockEvent >$< cdbTracer
+    validationTracer = TraceAddBlockEvent . AddBlockValidation >$< cdbTracer
+    pipeliningTracer = TraceAddBlockEvent . PipeliningEvent >$< cdbTracer
     mkChainSelEnv :: ChainAndLedger m blk -> ChainSelEnv m blk
     mkChainSelEnv curChainAndLedger = ChainSelEnv
       { lgrDB                 = cdbLedgerDB

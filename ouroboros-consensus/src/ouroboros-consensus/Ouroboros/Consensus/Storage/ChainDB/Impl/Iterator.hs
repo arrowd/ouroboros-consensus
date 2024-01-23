@@ -217,10 +217,8 @@ fromChainDbEnv CDB{..} = IteratorEnv {
     , itVolatileDB      = cdbVolatileDB
     , itIterators       = cdbIterators
     , itNextIteratorKey = cdbNextIteratorKey
-    , itTracer          = trcr
+    , itTracer          = TraceIteratorEvent `contramap` cdbTracer
     }
-    where
-      SomeChainDbTracer (contramap TraceIteratorEvent -> trcr) = cdbTracer
 
 -- | See 'stream'.
 newIterator ::

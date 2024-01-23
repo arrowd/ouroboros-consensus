@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns             #-}
+{-# LANGUAGE DataKinds                #-}
 {-# LANGUAGE DeriveGeneric            #-}
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE FunctionalDependencies   #-}
@@ -28,7 +29,8 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Init (
 
 import           Control.Monad (when)
 import           Control.Monad.Except (ExceptT, runExceptT)
-import           Control.Monad.Reader
+import           Control.Monad.Reader (ReaderT (..))
+import           Control.Monad.Trans (MonadTrans (..))
 import           Control.Tracer
 import           Data.Functor.Contravariant ((>$<))
 import           Data.Kind (Type)
@@ -299,13 +301,14 @@ openDB ::
   , InspectLedger blk
   , HasCallStack
   )
-  => Complete LedgerDbArgs impl m blk
-  -> InitDB (Flavor impl) m blk
+  => Proxy impl
+  -> Complete LedgerDbArgs m blk
+  -> InitDB impl m blk
   -> StreamAPI m blk blk
   -> Point blk
   -> m (LedgerDB' m blk, Word64)
-openDB args initDb stream replayGoal =
-    f <$> openDBInternal args initDb stream replayGoal
+openDB p args initDb stream replayGoal =
+    f <$> openDBInternal p args initDb stream replayGoal
   where f (ldb, replayCounter, _) = (ldb, replayCounter)
 
 -- | Open the ledger DB and expose internals for testing purposes
@@ -315,12 +318,13 @@ openDBInternal ::
   , InspectLedger blk
   , HasCallStack
   )
-  => Complete LedgerDbArgs impl m blk
-  -> InitDB (Flavor impl) m blk
+  => Proxy impl
+  -> Complete LedgerDbArgs m blk
+  -> InitDB impl m blk
   -> StreamAPI m blk blk
   -> Point blk
-  -> m (LedgerDB' m blk, Word64, Internal (Flavor impl) m blk)
-openDBInternal args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream replayGoal = do
+  -> m (LedgerDB' m blk, Word64, Internal impl m blk)
+openDBInternal _ args@LedgerDbArgs { lgrHasFS = SomeHasFS fs } initDb stream replayGoal = do
     createDirectoryIfMissing fs True (mkFsPath [])
     (_initLog, db, replayCounter) <-
           initialize

@@ -15,22 +15,19 @@
 module Ouroboros.Consensus.Storage.LedgerDB.V1.Args (
     BackingStoreArgs (..)
   , FlushFrequency (..)
-  , HasBackingStoreArgs (..)
   , LedgerDbFlavorArgs (..)
   , QueryBatchSize (..)
+  , defaultLedgerDbFlavorArgs
   , defaultQueryBatchSize
   , defaultShouldFlush
   ) where
 
 import           Control.Monad.IO.Class
-import           Data.Kind
 import           Data.SOP.Dict
 import           Data.Word
 import           GHC.Generics
 import           NoThunks.Class
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.LMDB
-import           Ouroboros.Consensus.Util.Singletons
 
 {-------------------------------------------------------------------------------
   Arguments
@@ -80,27 +77,18 @@ defaultShouldFlush requestedFlushFrequency = case requestedFlushFrequency of
       RequestedFlushFrequency value -> (>= value)
       DefaultFlushFrequency         -> (>= 100)
 
-instance HasBackingStoreArgs impl m => HasFlavorArgs '(FlavorV1, impl) m where
-  data instance LedgerDbFlavorArgs '(FlavorV1, impl) m = V1Args {
+data LedgerDbFlavorArgs m = V1Args {
       v1FlushFrequency :: FlushFrequency
     , v1QueryBatchSize :: QueryBatchSize
-    , v1BackendArgs    :: BackingStoreArgs impl m
+    , v1BackendArgs    :: BackingStoreArgs  m
   }
 
-  defaultFlavorArgs = V1Args DefaultFlushFrequency DefaultQueryBatchSize defaultBackingStoreArgs
-
-type HasBackingStoreArgs :: LedgerDbStorageFlavor -> (Type -> Type) -> Constraint
-class SingI impl => HasBackingStoreArgs impl m where
-  data family BackingStoreArgs impl m
-  defaultBackingStoreArgs :: BackingStoreArgs impl m
-
-instance MonadIO m => HasBackingStoreArgs OnDisk m where
-  data instance BackingStoreArgs OnDisk m =
+data BackingStoreArgs m =
     LMDBBackingStoreArgs LMDBLimits (Dict MonadIO m)
+  | InMemoryBackingStoreArgs
 
-  defaultBackingStoreArgs = LMDBBackingStoreArgs defaultLMDBLimits Dict
+defaultLedgerDbFlavorArgs :: LedgerDbFlavorArgs m
+defaultLedgerDbFlavorArgs = V1Args DefaultFlushFrequency DefaultQueryBatchSize defaultBackingStoreArgs
 
-instance HasBackingStoreArgs InMemory m where
-  data instance BackingStoreArgs InMemory m = InMemoryBackingStoreArgs
-
-  defaultBackingStoreArgs = InMemoryBackingStoreArgs
+defaultBackingStoreArgs :: BackingStoreArgs m
+defaultBackingStoreArgs = InMemoryBackingStoreArgs

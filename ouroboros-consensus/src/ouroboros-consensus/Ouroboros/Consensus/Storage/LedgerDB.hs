@@ -1,7 +1,9 @@
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB (
     -- * API
@@ -9,12 +11,10 @@ module Ouroboros.Consensus.Storage.LedgerDB (
   , module Ouroboros.Consensus.Storage.LedgerDB.API.Config
     -- * Impl
   , LedgerDbFlavor (..)
-  , LedgerDbStorageFlavor (..)
   , openDB
   ) where
 
 import           Control.Monad.Base
-import           Data.SOP.Dict
 import           Data.Word
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Ledger.Inspect
@@ -31,19 +31,17 @@ import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.Init as V2
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
-import           Ouroboros.Consensus.Util.Singletons
 
 openDB ::
-  forall m blk impl.
+  forall m blk.
   ( IOLike m
   , MonadBase m m
   , LedgerSupportsProtocol blk
   , LedgerDbSerialiseConstraints blk
   , InspectLedger blk
-  , SingI impl
   , HasCallStack
   )
-  => Complete LedgerDbArgs impl m blk
+  => Complete LedgerDbArgs m blk
   -- ^ Stateless initializaton arguments
   -> StreamAPI m blk blk
   -- ^ Stream source for blocks.
@@ -61,17 +59,18 @@ openDB
   args
   immdb
   replayGoal
-  getBlock =
-    case sing :: Sing impl of
-      SFlavorV1' Dict ->
-        let initDb = V1.mkInitDb
+  getBlock = case lgrFlavorArgs args of
+    LedgerDbFlavorArgsV1 bss ->
+      let initDb = V1.mkInitDb
                        args
+                       bss
                        getBlock
         in
-          Init.openDB args initDb immdb replayGoal
-      SFlavorV2' Dict ->
+          Init.openDB (Proxy @FlavorV1) args initDb immdb replayGoal
+    LedgerDbFlavorArgsV2 bss ->
         let initDb = V2.mkInitDb
                        args
+                       bss
                        getBlock
         in
-          Init.openDB args initDb immdb replayGoal
+          Init.openDB (Proxy @FlavorV2) args initDb immdb replayGoal

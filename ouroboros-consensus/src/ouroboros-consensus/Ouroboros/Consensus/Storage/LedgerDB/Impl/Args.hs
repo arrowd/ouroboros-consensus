@@ -5,10 +5,12 @@
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE GADTs                    #-}
 {-# LANGUAGE PolyKinds                #-}
+{-# LANGUAGE QuantifiedConstraints    #-}
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeApplications         #-}
 {-# LANGUAGE TypeFamilies             #-}
 {-# LANGUAGE UndecidableInstances     #-}
 
@@ -17,7 +19,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Args (
     LedgerDbArgs (..)
   , defaultArgs
     -- * Tracing
-  , FlavorImplSpecificTrace
   , ReplayGoal (..)
   , ReplayStart (..)
   , TraceLedgerDBEvent (..)
@@ -26,6 +27,9 @@ module Ouroboros.Consensus.Storage.LedgerDB.Impl.Args (
   , TraceReplayStartEvent (..)
   , decorateReplayTracerWithGoal
   , decorateReplayTracerWithStart
+    --
+  , FlavorImplSpecificTrace (..)
+  , LedgerDbFlavorArgs (..)
   ) where
 
 import           Control.Tracer
@@ -38,10 +42,11 @@ import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.Inspect
 import           Ouroboros.Consensus.Storage.LedgerDB.API
 import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
+import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.Args as V1
+import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore as V1
+import qualified Ouroboros.Consensus.Storage.LedgerDB.V2.Args as V2
 import           Ouroboros.Consensus.Util.Args
-import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 
 {-------------------------------------------------------------------------------
@@ -51,53 +56,51 @@ import           System.FS.API
 -- | Arguments required to initialize a LedgerDB.
 type LedgerDbArgs ::
      (Type -> Type)
-  -> LedgerDbImplementation
   -> (Type -> Type)
   -> Type
   -> Type
-data LedgerDbArgs f impl m blk = SingI impl => LedgerDbArgs {
+data LedgerDbArgs f m blk = LedgerDbArgs {
       lgrSnapshotInterval :: SnapshotInterval
     , lgrGenesis          :: HKD f (m (ExtLedgerState blk ValuesMK))
     , lgrHasFS            :: HKD f (SomeHasFS m)
     , lgrConfig           :: HKD f (LedgerDbCfg (ExtLedgerState blk))
-    , lgrTracer           :: Tracer m (TraceLedgerDBEvent impl blk)
-    , lgrFlavorArgs       :: LedgerDbFlavorArgs impl m
+    , lgrTracer           :: Tracer m (TraceLedgerDBEvent blk)
+    , lgrFlavorArgs       :: LedgerDbFlavorArgs m
     }
 
 -- | Default arguments
 defaultArgs ::
-     ( HasFlavorArgs impl m
-     , Applicative m
+     ( Applicative m
      )
-  => Incomplete LedgerDbArgs impl m blk
+  => Incomplete LedgerDbArgs m blk
 defaultArgs = LedgerDbArgs {
       lgrSnapshotInterval = DefaultSnapshotInterval
     , lgrGenesis          = NoDefault
     , lgrHasFS            = NoDefault
     , lgrConfig           = NoDefault
     , lgrTracer           = nullTracer
-    , lgrFlavorArgs       = defaultFlavorArgs
+    , lgrFlavorArgs       = LedgerDbFlavorArgsV1 V1.defaultLedgerDbFlavorArgs
     }
+
+data LedgerDbFlavorArgs m where
+  LedgerDbFlavorArgsV1 :: V1.LedgerDbFlavorArgs m -> LedgerDbFlavorArgs m
+  LedgerDbFlavorArgsV2 :: V2.LedgerDbFlavorArgs m -> LedgerDbFlavorArgs m
 
 {-------------------------------------------------------------------------------
   Tracing
 -------------------------------------------------------------------------------}
 
-data family FlavorImplSpecificTrace (impl :: (k, l))
+data FlavorImplSpecificTrace =
+    FlavorImplSpecificTraceV1 V1.FlavorImplSpecificTrace
+  | FlavorImplSpecificTraceV2 V2.FlavorImplSpecificTrace
+  deriving (Show, Eq)
 
-data TraceLedgerDBEvent impl blk =
+data TraceLedgerDBEvent blk =
       LedgerDBSnapshotEvent   !(TraceSnapshotEvent blk)
     | LedgerReplayEvent       !(TraceReplayEvent blk)
     | LedgerDBForkerEvent     !TraceForkerEventWithKey
-    | LedgerDBFlavorImplEvent !(FlavorImplSpecificTrace impl)
-  deriving (Generic)
-
-deriving instance
-  (StandardHash blk, Show (FlavorImplSpecificTrace impl), InspectLedger blk)
-  => Show (TraceLedgerDBEvent impl blk)
-deriving instance
-  (StandardHash blk, Eq (FlavorImplSpecificTrace impl), InspectLedger blk)
-  => Eq (TraceLedgerDBEvent impl blk)
+    | LedgerDBFlavorImplEvent !FlavorImplSpecificTrace
+  deriving (Generic, Show, Eq)
 
 {-------------------------------------------------------------------------------
   Trace replay events

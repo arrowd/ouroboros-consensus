@@ -32,37 +32,35 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
                      (TraceEvent (..))
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
 import qualified Ouroboros.Consensus.Storage.LedgerDB.API.Config as LedgerDB
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
+                     (LedgerDbFlavorArgs)
 import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Args as LedgerDB
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
-import qualified Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors as LedgerDB
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.IOLike
 import           Ouroboros.Consensus.Util.ResourceRegistry (ResourceRegistry)
-import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 
 {-------------------------------------------------------------------------------
   Arguments
 -------------------------------------------------------------------------------}
 
-data ChainDbArgs f ldbImpl m blk = SingI ldbImpl => ChainDbArgs {
+data ChainDbArgs f m blk = ChainDbArgs {
     cdbImmDbArgs :: ImmutableDB.ImmutableDbArgs f m blk
   , cdbVolDbArgs :: VolatileDB.VolatileDbArgs f m blk
-  , cdbLgrDbArgs :: LedgerDB.LedgerDbArgs f ldbImpl m blk
-  , cdbsArgs     :: ChainDbSpecificArgs f ldbImpl m blk
+  , cdbLgrDbArgs :: LedgerDB.LedgerDbArgs f m blk
+  , cdbsArgs     :: ChainDbSpecificArgs f m blk
   }
 
 -- | Arguments specific to the ChainDB, not to the ImmutableDB, VolatileDB, or
 -- LedgerDB.
 type ChainDbSpecificArgs ::
      (Type -> Type)
-  -> LedgerDB.LedgerDbImplementation
   -> (Type -> Type)
   -> Type
   -> Type
-data ChainDbSpecificArgs f ldbImpl m blk = ChainDbSpecificArgs {
+data ChainDbSpecificArgs f m blk = ChainDbSpecificArgs {
       cdbsBlocksToAddSize :: Word
       -- ^ Size of the queue used to store asynchronously added blocks. This
       -- is the maximum number of blocks that could be kept in memory at the
@@ -80,7 +78,7 @@ data ChainDbSpecificArgs f ldbImpl m blk = ChainDbSpecificArgs {
       -- ^ Batch all scheduled GCs so that at most one GC happens every
       -- 'cdbsGcInterval'.
     , cdbsRegistry        :: HKD f (ResourceRegistry m)
-    , cdbsTracer          :: Tracer m (TraceEvent ldbImpl blk)
+    , cdbsTracer          :: Tracer m (TraceEvent blk)
     , cdbsTopLevelConfig  :: HKD f (TopLevelConfig blk)
     }
 
@@ -106,7 +104,7 @@ data ChainDbSpecificArgs f ldbImpl m blk = ChainDbSpecificArgs {
 --   have, because of batching) < the number of blocks sync in @gcInterval@.
 --   E.g., when syncing at 1k-2k blocks/s, this means 10k-20k blocks. During
 --   normal operation, we receive 1 block/20s, meaning at most 1 block.
-defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs ldbImpl m blk
+defaultSpecificArgs :: Monad m => Incomplete ChainDbSpecificArgs m blk
 defaultSpecificArgs = ChainDbSpecificArgs {
       cdbsBlocksToAddSize = 10
     , cdbsCheckInFuture   = NoDefault
@@ -123,9 +121,9 @@ defaultSpecificArgs = ChainDbSpecificArgs {
 -- and 'defaultSpecificArgs' for a list of which fields are not given a default
 -- and must therefore be set explicitly.
 defaultArgs ::
-     forall m blk ldbImpl.
-     (Monad m, LedgerDB.HasFlavorArgs ldbImpl m)
-  => Incomplete ChainDbArgs ldbImpl m blk
+     forall m blk .
+     Monad m
+  => Incomplete ChainDbArgs m blk
 defaultArgs =
    ChainDbArgs ImmutableDB.defaultArgs
                VolatileDB.defaultArgs
@@ -133,8 +131,8 @@ defaultArgs =
                defaultSpecificArgs
 
 ensureValidateAll ::
-     ChainDbArgs f ldbImpl m blk
-  -> ChainDbArgs f ldbImpl m blk
+     ChainDbArgs f m blk
+  -> ChainDbArgs f m blk
 ensureValidateAll args =
   args { cdbImmDbArgs = (cdbImmDbArgs args) {
            ImmutableDB.immValidationPolicy = ImmutableDB.ValidateAllChunks
@@ -145,7 +143,7 @@ ensureValidateAll args =
        }
 
 completeChainDbArgs
-  :: forall m blk ldbImpl. (ConsensusProtocol (BlockProtocol blk), IOLike m)
+  :: forall m blk. (ConsensusProtocol (BlockProtocol blk), IOLike m)
   => ResourceRegistry m
   -> CheckInFuture m blk
   -> TopLevelConfig blk
@@ -155,9 +153,9 @@ completeChainDbArgs
   -> (blk -> Bool)
      -- ^ Check integrity
   -> (RelativeMountPoint -> SomeHasFS m)
-  -> Incomplete ChainDbArgs ldbImpl m blk
+  -> Incomplete ChainDbArgs m blk
      -- ^ A set of incomplete arguments, possibly modified wrt @defaultArgs@
-  -> Complete ChainDbArgs ldbImpl m blk
+  -> Complete ChainDbArgs m blk
 completeChainDbArgs
   registry
   cdbsCheckInFuture
@@ -193,9 +191,9 @@ completeChainDbArgs
       }
 
 updateTracer ::
-  Tracer m (TraceEvent ldbImpl blk)
-  -> ChainDbArgs f ldbImpl m blk
-  -> ChainDbArgs f ldbImpl m blk
+  Tracer m (TraceEvent blk)
+  -> ChainDbArgs f m blk
+  -> ChainDbArgs f m blk
 updateTracer trcr args =
   args {
       cdbImmDbArgs = (cdbImmDbArgs args) { ImmutableDB.immTracer = TraceImmutableDBEvent >$< trcr }
@@ -206,14 +204,14 @@ updateTracer trcr args =
 
 updateSnapshotInterval ::
   SnapshotInterval
-  -> ChainDbArgs f ldbImpl m blk
-  -> ChainDbArgs f ldbImpl m blk
+  -> ChainDbArgs f m blk
+  -> ChainDbArgs f m blk
 updateSnapshotInterval si args = args { cdbLgrDbArgs = (cdbLgrDbArgs args) { LedgerDB.lgrSnapshotInterval = si } }
 
 updateLdbFlavorArgs ::
-  LedgerDbFlavorArgs ldbImpl m
-  -> ChainDbArgs f ldbImpl m blk
-  -> ChainDbArgs f ldbImpl m blk
+  LedgerDbFlavorArgs m
+  -> ChainDbArgs f m blk
+  -> ChainDbArgs f m blk
 updateLdbFlavorArgs fargs args = args { cdbLgrDbArgs = (cdbLgrDbArgs args) { LedgerDB.lgrFlavorArgs = fargs } }
 
 {-------------------------------------------------------------------------------

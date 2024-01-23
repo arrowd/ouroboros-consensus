@@ -4,6 +4,7 @@
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V1.Forker (
     -- * Main API
@@ -19,10 +20,8 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Forker (
 
 import           Control.Tracer
 import           Data.Functor.Contravariant ((>$<))
-import qualified Data.Map.Diff.Strict as Diff
 import qualified Data.Map.Strict as Map
 import           Data.Semigroup
-import qualified Data.Set as Set
 import           Data.Word
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Ledger.Abstract
@@ -52,7 +51,7 @@ newForkerAtTip ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle impl m l blk
+  => LedgerDBHandle m l blk
   -> ResourceRegistry m
   -> m (Forker m l blk)
 newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
@@ -66,7 +65,7 @@ newForkerAtPoint ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle impl m l blk
+  => LedgerDBHandle m l blk
   -> ResourceRegistry m
   -> Point blk
   -> m (Either GetForkerError (Forker m l blk))
@@ -79,7 +78,7 @@ newForkerAtFromTip ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBHandle impl m l blk
+  => LedgerDBHandle m l blk
   -> ResourceRegistry m
   -> Word64
   -> m (Either ExceededRollback (Forker m l blk))
@@ -89,7 +88,7 @@ newForkerAtFromTip h rr n = getEnv h $ \ldbEnv -> do
 -- | Close all open block and header 'Follower's.
 closeAllForkers ::
      MonadSTM m
-  => LedgerDBEnv impl m l blk
+  => LedgerDBEnv m l blk
   -> m ()
 closeAllForkers ldbEnv = do
     forkerEnvs <- atomically $ do
@@ -115,7 +114,7 @@ type Resources m l =
 -- while doing so.
 acquireAtTip ::
      IOLike m
-  => LedgerDBEnv impl m l blk
+  => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> ReadLocked m (Resources m l)
 acquireAtTip ldbEnv rr =
@@ -126,7 +125,7 @@ acquireAtTip ldbEnv rr =
 -- Acquire both a value handle and a db changelog at the requested point. Holds
 -- a read lock while doing so.
 acquireAtPoint ::
-     forall impl m l blk. (
+     forall m l blk. (
        HeaderHash l ~ HeaderHash blk
      , IOLike m
      , IsLedger l
@@ -134,7 +133,7 @@ acquireAtPoint ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      )
-  => LedgerDBEnv impl m l blk
+  => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> Point blk
   -> ReadLocked m (Either GetForkerError (Resources m l))
@@ -150,12 +149,12 @@ acquireAtPoint ldbEnv rr pt =
 -- Acquire both a value handle and a db changelog at n blocks before the tip.
 -- Holds a read lock while doing so.
 acquireAtFromTip ::
-     forall impl m l blk. (
+     forall m l blk. (
        IOLike m
      , IsLedger l
      , HasLedgerTables l
      )
-  => LedgerDBEnv impl m l blk
+  => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> Word64
   -> ReadLocked m (Either ExceededRollback (Resources m l))
@@ -172,7 +171,7 @@ acquireAtFromTip ldbEnv rr n =
 
 acquire ::
      IOLike m
-  => LedgerDBEnv impl m l blk
+  => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> AnchorlessDbChangelog l
   -> m (LedgerBackingStoreValueHandle m l)
@@ -199,8 +198,8 @@ newForker ::
      , NoThunks (l EmptyMK)
      , GetTip l
      )
-  => LedgerDBHandle impl m l blk
-  -> LedgerDBEnv impl m l blk
+  => LedgerDBHandle m l blk
+  -> LedgerDBEnv m l blk
   -> Resources m l
   -> m (Forker m l blk)
 newForker h ldbEnv (vh, dblog) = do
@@ -224,7 +223,7 @@ mkForker ::
      , HasLedgerTables l
      , GetTip l
      )
-  => LedgerDBHandle impl m l blk
+  => LedgerDBHandle m l blk
   -> ForkerKey
   -> Forker m l blk
 mkForker h forkerKey = Forker {
@@ -240,7 +239,7 @@ mkForker h forkerKey = Forker {
 
 implForkerClose ::
      MonadSTM m
-  => LedgerDBHandle impl m l blk
+  => LedgerDBHandle m l blk
   -> ForkerKey
   -> m ()
 implForkerClose (LDBHandle varState) forkerKey = do
@@ -277,7 +276,7 @@ implForkerRangeReadTables ::
   => ForkerEnv m l blk
   -> API.RangeQuery l
   -> m (LedgerTables l ValuesMK)
-implForkerRangeReadTables env rq0 = undefined -- TODO (js) -- do
+implForkerRangeReadTables _env _rq0 = undefined -- TODO (js) -- do
   --   traceWith (foeTracer env) ForkerRangeReadTablesStart
   --   ldb <- readTVarIO $ foeChangelog env
   --   let -- Get the differences without the keys that are greater or equal

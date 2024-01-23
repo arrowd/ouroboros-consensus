@@ -6,7 +6,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE ViewPatterns        #-}
 
 -- | Followers
 module Ouroboros.Consensus.Storage.ChainDB.Impl.Follower (
@@ -101,8 +100,7 @@ newFollower h registry chainType blockComponent = getEnv h $ \CDB{..} -> do
     atomically $ modifyTVar cdbFollowers $ Map.insert followerKey followerHandle
     let follower =
           makeNewFollower h followerKey varFollower chainType registry blockComponent
-    let SomeChainDbTracer (contramap TraceFollowerEvent -> trcr) = cdbTracer
-    traceWith trcr NewFollower
+    traceWith (TraceFollowerEvent `contramap` cdbTracer) NewFollower
     return follower
   where
     mkFollowerHandle :: StrictTVar m (FollowerState m blk b) -> FollowerHandle m blk
@@ -271,8 +269,7 @@ instructionHelper registry varFollower chainType blockComponent fromMaybeSTM CDB
             atomically $ writeTVar varFollower followerState'
             return $ pure $ RollBack pt
   where
-    SomeChainDbTracer (contramap TraceFollowerEvent -> trcr) = cdbTracer
-    trace = traceWith trcr
+    trace = traceWith (TraceFollowerEvent `contramap` cdbTracer)
 
     getCurrentChainByType = do
         curChain <- readTVar cdbChain

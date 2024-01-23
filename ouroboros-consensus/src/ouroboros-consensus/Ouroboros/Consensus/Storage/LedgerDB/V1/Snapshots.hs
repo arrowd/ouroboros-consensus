@@ -143,14 +143,12 @@ import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
 import           Ouroboros.Consensus.Storage.LedgerDB.API
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util.IOLike
-import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 import           System.FS.API.Types
 
@@ -230,10 +228,9 @@ loadSnapshot ::
      ( IOLike m
      , LedgerDbSerialiseConstraints blk
      , LedgerSupportsProtocol blk
-     , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
-  -> BackingStoreArgs impl m
+  => Tracer m FlavorImplSpecificTrace
+  -> BackingStoreArgs m
   -> CodecConfig blk
   -> SomeHasFS m
   -> DiskSnapshot

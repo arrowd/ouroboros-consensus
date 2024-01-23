@@ -37,14 +37,11 @@ import           Data.Functor.Contravariant
 import           Data.SOP.Dict
 import           GHC.Stack (HasCallStack)
 import           Ouroboros.Consensus.Ledger.Basics
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.API
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.InMemory as InMemory
 import qualified Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore.Impl.LMDB as LMDB
 import           Ouroboros.Consensus.Util.IOLike
-import           Ouroboros.Consensus.Util.Singletons
 import           System.FS.API
 import           System.FS.API.Types
 
@@ -59,10 +56,9 @@ restoreBackingStore ::
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
-     , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
-  -> BackingStoreArgs impl m
+  => Tracer m FlavorImplSpecificTrace
+  -> BackingStoreArgs m
   -> SomeHasFS m
   -> FsPath
   -> m (LedgerBackingStore m l)
@@ -75,10 +71,9 @@ newBackingStore ::
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
-     , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
-  -> BackingStoreArgs impl m
+  => Tracer m FlavorImplSpecificTrace
+  -> BackingStoreArgs m
   -> SomeHasFS m
   -> LedgerTables l ValuesMK
   -> m (LedgerBackingStore m l)
@@ -86,36 +81,40 @@ newBackingStore trcr bss someHasFS tables =
     newBackingStoreInitialiser trcr bss someHasFS (InitFromValues Origin tables)
 
 newBackingStoreInitialiser ::
-     forall m l impl.
+     forall m l.
      ( IOLike m
      , HasLedgerTables l
      , CanSerializeLedgerTables l
      , HasCallStack
-     , SingI impl
      )
-  => Tracer m (FlavorImplSpecificTrace '(FlavorV1, impl))
-  -> BackingStoreArgs impl m
+  => Tracer m FlavorImplSpecificTrace
+  -> BackingStoreArgs m
   -> BackingStoreInitializer m l
 newBackingStoreInitialiser trcr bss =
-  case (sing :: Sing impl, bss) of
-    (SOnDisk, LMDBBackingStoreArgs limits Dict) ->
+  case bss of
+    LMDBBackingStoreArgs limits Dict ->
       LMDB.newLMDBBackingStore
-        (OnDiskBackingStoreTrace >$< trcr)
+        (FlavorImplSpecificTraceOnDisk . OnDiskBackingStoreTrace >$< trcr)
         limits
-    (SInMemory, InMemoryBackingStoreArgs) ->
+    InMemoryBackingStoreArgs ->
       InMemory.newInMemoryBackingStore
-        (InMemoryBackingStoreTrace >$< trcr)
+        (FlavorImplSpecificTraceInMemory . InMemoryBackingStoreTrace >$< trcr)
 
 {-------------------------------------------------------------------------------
   Tracing
 -------------------------------------------------------------------------------}
 
-data instance FlavorImplSpecificTrace '(FlavorV1, InMemory) =
+data FlavorImplSpecificTrace =
+    FlavorImplSpecificTraceInMemory FlavorImplSpecificTraceInMemory
+  | FlavorImplSpecificTraceOnDisk FlavorImplSpecificTraceOnDisk
+  deriving (Eq, Show)
+
+data FlavorImplSpecificTraceInMemory  =
     InMemoryBackingStoreInitialise
   | InMemoryBackingStoreTrace BackingStoreTrace
   deriving (Eq, Show)
 
-data instance FlavorImplSpecificTrace '(FlavorV1, OnDisk) =
+data FlavorImplSpecificTraceOnDisk =
     OnDiskBackingStoreInitialise LMDB.LMDBLimits
   | OnDiskBackingStoreTrace BackingStoreTrace
   deriving (Eq, Show)

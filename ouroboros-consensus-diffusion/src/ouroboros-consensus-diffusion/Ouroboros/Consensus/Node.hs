@@ -92,7 +92,7 @@ import           Ouroboros.Consensus.NodeKernel
 import           Ouroboros.Consensus.Storage.ChainDB (ChainDB, ChainDbArgs)
 import qualified Ouroboros.Consensus.Storage.ChainDB as ChainDB
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl.Args as ChainDB
-import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Flavors
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import           Ouroboros.Consensus.Util.Args
 import           Ouroboros.Consensus.Util.IOLike
@@ -160,9 +160,8 @@ type RunNodeArgs ::
   -> Type
   -> Type
   -> Diffusion.P2P
-  -> LedgerDbImplementation
   -> Type
-data RunNodeArgs m addrNTN addrNTC blk p2p ldbImpl = RunNodeArgs {
+data RunNodeArgs m addrNTN addrNTC blk p2p = RunNodeArgs {
       -- | Consensus tracers
       rnTraceConsensus :: Tracers m (ConnectionId addrNTN) (ConnectionId addrNTC) blk
 
@@ -204,9 +203,8 @@ type LowLevelRunNodeArgs ::
   -> Type
   -> Type
   -> Diffusion.P2P
-  -> LedgerDbImplementation
   -> Type
-data LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p ldbImpl =
+data LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p =
    LowLevelRunNodeArgs {
 
       -- | An action that will receive a marker indicating whether the previous
@@ -219,7 +217,7 @@ data LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p
                         -> m a
 
       -- | The " static " ChainDB arguments
-    , llrnChainDbArgsDefaults :: Incomplete ChainDbArgs ldbImpl m blk
+    , llrnChainDbArgsDefaults :: Incomplete ChainDbArgs m blk
 
       -- | The
     , llrnMkHasFS :: ChainDB.RelativeMountPoint -> SomeHasFS m
@@ -228,8 +226,8 @@ data LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p
       -- set various options that are exposed in @cardano-node@ configuration
       -- files.
     , llrnCustomiseChainDbArgs ::
-           Complete ChainDbArgs ldbImpl m blk
-        -> Complete ChainDbArgs ldbImpl m blk
+           Complete ChainDbArgs m blk
+        -> Complete ChainDbArgs m blk
 
       -- | Customise the 'NodeArgs'
     , llrnCustomiseNodeKernelArgs ::
@@ -289,10 +287,10 @@ deriving instance Eq   (NetworkP2PMode p2p)
 deriving instance Show (NetworkP2PMode p2p)
 
 -- | Combination of 'runWith' and 'stdLowLevelRunArgsIO'
-run :: forall blk p2p ldbImpl.
-     (RunNode blk, HasFlavorArgs ldbImpl IO)
-  => RunNodeArgs IO RemoteAddress LocalAddress blk p2p ldbImpl
-  -> StdRunNodeArgs IO blk p2p ldbImpl
+run :: forall blk p2p.
+     RunNode blk
+  => RunNodeArgs IO RemoteAddress LocalAddress blk p2p
+  -> StdRunNodeArgs IO blk p2p
   -> IO ()
 run args stdArgs =
       stdLowLevelRunNodeArgsIO args stdArgs
@@ -304,17 +302,17 @@ run args stdArgs =
 -- network layer.
 --
 -- This function runs forever unless an exception is thrown.
-runWith :: forall m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p ldbImpl.
+runWith :: forall m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p.
      ( RunNode blk
      , IOLike m, MonadTime m, MonadTimer m
      , Hashable addrNTN, Ord addrNTN, Typeable addrNTN
      , HasCallStack
      , MonadBase m m
      )
-  => RunNodeArgs m addrNTN addrNTC blk p2p ldbImpl
+  => RunNodeArgs m addrNTN addrNTC blk p2p
   -> (addrNTN -> CBOR.Encoding)
   -> (forall s . CBOR.Decoder s addrNTN)
-  -> LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p ldbImpl
+  -> LowLevelRunNodeArgs m addrNTN addrNTC versionDataNTN versionDataNTC blk p2p
   -> m ()
 runWith RunNodeArgs{..} encAddrNtN decAddrNtN LowLevelRunNodeArgs{..} =
 
@@ -579,16 +577,16 @@ stdWithCheckedDB pb databasePath networkMagic body = do
     hasFS      = ioHasFS mountPoint
 
 openChainDB
-  :: forall m blk ldbImpl. (RunNode blk, IOLike m, MonadBase m m)
+  :: forall m blk. (RunNode blk, IOLike m, MonadBase m m)
   => ResourceRegistry m
   -> CheckInFuture m blk
   -> TopLevelConfig blk
   -> ExtLedgerState blk ValuesMK
      -- ^ Initial ledger
   -> (ChainDB.RelativeMountPoint -> SomeHasFS m)
-  -> Incomplete ChainDbArgs ldbImpl m blk
+  -> Incomplete ChainDbArgs m blk
      -- ^ A set of default arguments (possibly modified from 'defaultArgs')
-  -> (Complete ChainDbArgs ldbImpl m blk -> Complete ChainDbArgs ldbImpl m blk)
+  -> (Complete ChainDbArgs m blk -> Complete ChainDbArgs m blk)
       -- ^ Customise the 'ChainDbArgs'
   -> m (ChainDB m blk)
 openChainDB registry inFuture cfg initLedger fs defArgs customiseArgs =
@@ -754,7 +752,7 @@ stdRunDataDiffusion = Diffusion.run
 -- some usual assumptions for realistic use cases such as in @cardano-node@.
 --
 -- See 'stdLowLevelRunNodeArgsIO'.
-data StdRunNodeArgs m blk (p2p :: Diffusion.P2P) ldbImpl = StdRunNodeArgs
+data StdRunNodeArgs m blk (p2p :: Diffusion.P2P) = StdRunNodeArgs
   { srnBfcMaxConcurrencyBulkSync    :: Maybe Word
   , srnBfcMaxConcurrencyDeadline    :: Maybe Word
   , srnChainDbValidateOverride      :: Bool
@@ -774,22 +772,22 @@ data StdRunNodeArgs m blk (p2p :: Diffusion.P2P) ldbImpl = StdRunNodeArgs
     -- ^ If @False@, then the node will limit the negotiated NTN and NTC
     -- versions to the latest " official " release (as chosen by Network and
     -- Consensus Team, with input from Node Team)
-  , srnTraceChainDB                 :: Tracer m (ChainDB.TraceEvent ldbImpl blk)
+  , srnTraceChainDB                 :: Tracer m (ChainDB.TraceEvent blk)
   , srnMaybeMempoolCapacityOverride :: Maybe MempoolCapacityBytesOverride
     -- ^ Determine whether to use the system default mempool capacity or explicitly set
     -- capacity of the mempool.
 
     -- Ad hoc values to replace default ChainDB configurations
   , srnSnapshotInterval :: SnapshotInterval
-  , srnLdbFlavorArgs    :: LedgerDbFlavorArgs ldbImpl m
+  , srnLdbFlavorArgs    :: LedgerDbFlavorArgs m
   }
 
 -- | Conveniently packaged 'LowLevelRunNodeArgs' arguments from a standard
 -- non-testing invocation.
 stdLowLevelRunNodeArgsIO ::
-     forall blk p2p ldbImpl. (RunNode blk, HasFlavorArgs ldbImpl IO)
-  => RunNodeArgs IO RemoteAddress LocalAddress blk p2p ldbImpl
-  -> StdRunNodeArgs IO blk p2p ldbImpl
+     forall blk p2p . RunNode blk
+  => RunNodeArgs IO RemoteAddress LocalAddress blk p2p
+  -> StdRunNodeArgs IO blk p2p
   -> IO (LowLevelRunNodeArgs
           IO
           RemoteAddress
@@ -797,8 +795,7 @@ stdLowLevelRunNodeArgsIO ::
           NodeToNodeVersionData
           NodeToClientVersionData
           blk
-          p2p
-          ldbImpl)
+          p2p)
 stdLowLevelRunNodeArgsIO RunNodeArgs{ rnProtocolInfo
                                     , rnEnableP2P
                                     , rnPeerSharing
@@ -854,8 +851,8 @@ stdLowLevelRunNodeArgsIO RunNodeArgs{ rnProtocolInfo
     networkMagic = getNetworkMagic $ configBlock $ pInfoConfig rnProtocolInfo
 
     updateChainDbDefaults ::
-         Incomplete ChainDbArgs ldbImpl IO blk
-      -> Incomplete ChainDbArgs ldbImpl IO blk
+         Incomplete ChainDbArgs IO blk
+      -> Incomplete ChainDbArgs IO blk
     updateChainDbDefaults =
           ChainDB.updateLdbFlavorArgs srnLdbFlavorArgs
         . ChainDB.updateSnapshotInterval srnSnapshotInterval

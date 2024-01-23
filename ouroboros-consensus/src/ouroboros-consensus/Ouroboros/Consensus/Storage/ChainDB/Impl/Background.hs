@@ -7,7 +7,6 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE ViewPatterns        #-}
 
 -- | Background tasks:
 --
@@ -173,8 +172,7 @@ copyToImmutableDB CDB{..} = withCopyLock $ do
     atomically $ ImmutableDB.getTipSlot cdbImmutableDB
   where
     SecurityParam k = configSecurityParam cdbTopLevelConfig
-    SomeChainDbTracer (contramap TraceCopyToImmutableDBEvent -> trcr) = cdbTracer
-    trace = traceWith trcr
+    trace = traceWith (TraceCopyToImmutableDBEvent `contramap` cdbTracer)
 
     -- | Remove the header corresponding to the given point from the beginning
     -- of the current chain fragment.
@@ -273,7 +271,7 @@ copyAndSnapshotRunner cdb@CDB{..} gcSchedule replayed = do
 
       loop =<< LedgerDB.tryTakeSnapshot cdbLedgerDB ((,now) <$> prevSnapshotTime) ntBlocksSinceLastSnap'
 
-    SomeChainDbTracer (contramap TraceGCEvent -> trcr) = cdbTracer
+    trcr = TraceGCEvent `contramap` cdbTracer
 
     scheduleGC' :: WithOrigin SlotNo -> m ()
     scheduleGC' Origin             = return ()
@@ -312,7 +310,7 @@ garbageCollect CDB{..} slotNo = do
     atomically $ do
       LedgerDB.garbageCollect cdbLedgerDB slotNo
       modifyTVar cdbInvalid $ fmap $ Map.filter ((>= slotNo) . invalidBlockSlotNo)
-    let SomeChainDbTracer (contramap (TraceGCEvent . PerformedGC) -> trcr) = cdbTracer
+    let trcr = (TraceGCEvent . PerformedGC) `contramap` cdbTracer
     traceWith trcr slotNo
 
 {-------------------------------------------------------------------------------
@@ -514,7 +512,7 @@ addBlockRunner
   => ChainDbEnv m blk
   -> m Void
 addBlockRunner cdb@CDB{..} =
-  let SomeChainDbTracer (contramap TraceAddBlockEvent -> trcr) = cdbTracer
+  let trcr = TraceAddBlockEvent `contramap` cdbTracer
   in forever $ do
     let trace = traceWith trcr
     trace $ PoppedBlockFromQueue RisingEdge
