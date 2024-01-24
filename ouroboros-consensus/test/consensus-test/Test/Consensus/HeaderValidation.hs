@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- | Property tests for header validations
 module Test.Consensus.HeaderValidation (tests) where
 
@@ -12,6 +14,15 @@ import qualified Test.QuickCheck as QC
 import           Test.Tasty (TestTree, testGroup)
 import           Test.Tasty.QuickCheck (testProperty)
 import           Test.Util.TestBlock
+import           Data.SOP.BasicFunctors
+import           Data.SOP.Strict
+import qualified Data.SOP.Telescope as Telescope
+import           Ouroboros.Consensus.HardFork.Combinator
+import           Ouroboros.Consensus.HardFork.Combinator.Embed.Unary
+import           Ouroboros.Consensus.TypeFamilyWrappers
+import           Ouroboros.Consensus.HardFork.Combinator.Degenerate
+import           Ouroboros.Consensus.HardFork.Combinator.State.Types
+import           Ouroboros.Consensus.HardFork.History.Summary
 
 tests :: TestTree
 tests = testGroup "HeaderValidation"
@@ -22,11 +33,13 @@ tests = testGroup "HeaderValidation"
     ]
   ]
 
+type HFTestBlock = HardForkBlock '[TestBlock]
+
 -- | Make a test block from the length of the hash and the Word64
 -- to create it.
-mkTestBlock :: QC.NonNegative Int -> Word64 -> TestBlock
-mkTestBlock (QC.NonNegative n) h =
-    successorBlockWithPayload
+mkHFTestBlock :: QC.NonNegative Int -> Word64 -> HFTestBlock
+mkHFTestBlock (QC.NonNegative n) h =
+    DegenBlock $ successorBlockWithPayload
       (TestHash $ h :| replicate n h)
       (fromIntegral n + 1)
       ()
@@ -34,36 +47,42 @@ mkTestBlock (QC.NonNegative n) h =
 -- | Like 'validateHeader', but takes a list of blocks to use as
 -- checkpoints.
 validateHeaderBlocks ::
-     [TestBlock]
-  -> TestBlock
-  -> Either (HeaderError TestBlock) (HeaderState TestBlock)
-validateHeaderBlocks xs x =
+     [HFTestBlock]
+  -> HFTestBlock
+  -> Either (HeaderError HFTestBlock) (HeaderState HFTestBlock)
+validateHeaderBlocks xs x@(DegenBlock xtb) =
     let
       checkpoints = CheckpointsMap $ Map.fromList [ (blockNo b, blockHash b) | b <- xs]
-      cfg = singleNodeTestConfig {topLevelConfigCheckpoints = checkpoints}
+      cfg = (inject singleNodeTestConfig) {topLevelConfigCheckpoints = checkpoints}
       h = getHeader x
       -- Chose the header state carefully so it doesn't cause validation to fail
       annTip =
-        case headerPrevHash h of
+        case headerPrevHash (getHeader xtb) of
           GenesisHash -> Origin
-          BlockHash hsh -> NotOrigin $ AnnTip (blockSlot x - 1) (blockNo x - 1) hsh
+          BlockHash hsh ->
+            NotOrigin $ AnnTip
+              (blockSlot x - 1)
+              (blockNo x - 1)
+              (DegenTipInfo hsh)
+      depState = initHardForkState (WrapChainDepState ())
+      WrapLedgerView ledgerView = inject (WrapLedgerView ())
       headerState =
         tickHeaderState
           (topLevelConfigProtocol cfg)
-          ()
+          ledgerView
           0
-          (HeaderState annTip ())
+          (HeaderState annTip depState)
      in
       runExcept $
-        validateHeader cfg () h headerState
+        validateHeader cfg ledgerView h headerState
 
 prop_validateIfCheckpoint_nonCheckpoint
   :: [QC.NonNegative Int] -> QC.NonNegative Int -> QC.Property
 prop_validateIfCheckpoint_nonCheckpoint xs x0 =
     let
-      blks = map (`mkTestBlock` 0) $ filter (/= x0) xs
+      blks = map (`mkHFTestBlock` 0) $ filter (/= x0) xs
      in
-      case validateHeaderBlocks blks (mkTestBlock x0 0) of
+      case validateHeaderBlocks blks (mkHFTestBlock x0 0) of
         Left e ->
           QC.counterexample "checkpoint validation should not fail on other blocks than checkpoints" $
           QC.counterexample (show e) $
@@ -74,9 +93,9 @@ prop_validateIfCheckpoint_checkpoint_matches
   :: [QC.NonNegative Int] -> QC.NonNegative Int -> QC.Property
 prop_validateIfCheckpoint_checkpoint_matches xs x =
     let
-      blks = map (`mkTestBlock` 0) (x:xs)
+      blks = map (`mkHFTestBlock` 0) (x:xs)
      in
-      case validateHeaderBlocks blks (mkTestBlock x 0) of
+      case validateHeaderBlocks blks (mkHFTestBlock x 0) of
         Left e  ->
           QC.counterexample "checkpoint matches should be accepted" $
           QC.counterexample (show e) $
@@ -87,9 +106,9 @@ prop_validateIfCheckpoint_checkpoint_mismatches
   :: [QC.NonNegative Int] -> QC.NonNegative Int -> QC.Property
 prop_validateIfCheckpoint_checkpoint_mismatches xs x =
     let
-      blks = map (`mkTestBlock` 0) (x:xs)
+      blks = map (`mkHFTestBlock` 0) (x:xs)
      in
-      case validateHeaderBlocks blks (mkTestBlock x 1) of
+      case validateHeaderBlocks blks (mkHFTestBlock x 1) of
         Left (HeaderEnvelopeError CheckpointMismatch{})  -> QC.property True
         Left e  ->
           QC.counterexample "checkpoint mismatches should be rejected with CheckpointMismatched" $
