@@ -53,7 +53,7 @@ module Ouroboros.Consensus.MiniProtocol.ChainSync.Client (
   , Our (..)
   , Their (..)
     -- * Trace events
-  , ChainSyncBucketConfig (..)
+  , ChainSyncLoPBucketConfig (..)
   , InvalidBlockReason
   , TraceChainSyncClientEvent (..)
   ) where
@@ -136,7 +136,7 @@ data ChainDbView m blk = ChainDbView {
   }
 
 -- | Configuration of the leaky bucketH
-data ChainSyncBucketConfig = ChainSyncBucketConfig {
+data ChainSyncLoPBucketConfig = ChainSyncLoPBucketConfig {
     csbcCapacity :: Integer
   , csbcRate     :: Rational
   }
@@ -173,7 +173,7 @@ bracketChainSyncClient ::
     -- (de)register nodes (@peer@).
  -> peer
  -> NodeToNodeVersion
- -> ChainSyncBucketConfig
+ -> ChainSyncLoPBucketConfig
  -> (StrictTVar m (AnchoredFragment (Header blk)) -> LeakyBucket.Handler m -> m a)
  -> m a
 bracketChainSyncClient
@@ -190,9 +190,9 @@ bracketChainSyncClient
         withWatcher
             "ChainSync.Client.rejectInvalidBlocks"
             (invalidBlockWatcher varCandidate)
-      $ execAgainstBucket bucketConfig
-      $ \bucketHandler ->
-            body varCandidate bucketHandler
+      $ execAgainstBucket lopBucketConfig
+      $ \lopBucket ->
+            body varCandidate lopBucket
   where
     newCandidateVar = do
         varCandidate <- newTVarIO $ AF.Empty AF.AnchorGenesis
@@ -206,7 +206,7 @@ bracketChainSyncClient
         invalidBlockRejector
             tracer version getIsInvalidBlock (readTVar varCandidate)
 
-    bucketConfig = LeakyBucket.Config {
+    lopBucketConfig = LeakyBucket.Config {
       capacity = fromInteger $ csbcCapacity csBucketConfig,
       rate = csbcRate csBucketConfig,
       onEmpty = throwIO EmptyBucket,
@@ -524,7 +524,7 @@ data DynamicEnv m blk = DynamicEnv {
   , controlMessageSTM   :: ControlMessageSTM m
   , headerMetricsTracer :: HeaderMetricsTracer m
   , varCandidate        :: StrictTVar m (AnchoredFragment (Header blk))
-  , bucketHandler       :: LeakyBucket.Handler m
+  , lopBucket           :: LeakyBucket.Handler m
   }
 
 -- | General values collectively needed by the top-level entry points
@@ -1446,7 +1446,7 @@ checkLoP ::
   -> m (KnownIntersectionState blk)
 checkLoP dynEnv hdr kis@KnownIntersectionState{kBestBlockNo} =
   if blockNo hdr > kBestBlockNo
-    then do void $ LeakyBucket.fill (bucketHandler dynEnv) 1
+    then do void $ LeakyBucket.fill (lopBucket dynEnv) 1
             pure $ kis{kBestBlockNo = blockNo hdr}
     else pure kis
 

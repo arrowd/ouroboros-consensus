@@ -56,7 +56,7 @@ basicChainSyncClient :: forall m.
   StrictTVar m TestFragH ->
   LeakyBucket.Handler m ->
   Consensus ChainSyncClientPipelined TestBlock m
-basicChainSyncClient tracer cfg chainDbView varCandidate bucketHandler =
+basicChainSyncClient tracer cfg chainDbView varCandidate lopBucket =
   chainSyncClient
     CSClient.ConfigEnv {
         CSClient.mkPipelineDecision0     = pipelineDecisionLowHighMark 10 20
@@ -70,7 +70,7 @@ basicChainSyncClient tracer cfg chainDbView varCandidate bucketHandler =
       , CSClient.controlMessageSTM   = return Continue
       , CSClient.headerMetricsTracer = nullTracer
       , CSClient.varCandidate
-      , CSClient.bucketHandler
+      , CSClient.lopBucket
       }
   where
     dummyHeaderInFutureCheck ::
@@ -104,14 +104,14 @@ runChainSyncClient
   StateViewTracers {svtChainSyncExceptionsTracer}
   varCandidates
   =
-    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion bucketConfig $ \ varCandidate bucketHandler -> do
+    bracketChainSyncClient nullTracer chainDbView varCandidates peerId ntnVersion lopBucketConfig $ \ varCandidate lopBucket -> do
       res <- try $ runConnectedPeersPipelinedWithLimits
         createConnectedChannels
         nullTracer
         codecChainSyncId
         chainSyncNoSizeLimits
         (timeLimitsChainSync chainSyncTimeouts)
-        (chainSyncClientPeerPipelined (basicChainSyncClient tracer cfg chainDbView varCandidate bucketHandler))
+        (chainSyncClientPeerPipelined (basicChainSyncClient tracer cfg chainDbView varCandidate lopBucket))
         (chainSyncServerPeer server)
       case res of
         Left exn -> do
@@ -136,4 +136,4 @@ runChainSyncClient
   where
     ntnVersion :: NodeToNodeVersion
     ntnVersion = maxBound
-    bucketConfig = CSClient.ChainSyncBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}
+    lopBucketConfig = CSClient.ChainSyncLoPBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}

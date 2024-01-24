@@ -90,10 +90,10 @@ oneBenchRun
         void
           $ forkLinkedThread registry "ChainSyncClient"
           $ void
-          $ runAgainstBucket bucketConfig $ \bucketHandler ->
+          $ runAgainstBucket lopBucketConfig $ \lopBucket ->
             runPipelinedPeer nullTracer codecChainSyncId clientChannel
               $ chainSyncClientPeerPipelined
-              $ client bucketHandler
+              $ client lopBucket
 
         atomically $ do
             candidate <- readTVar varCandidate
@@ -123,8 +123,8 @@ oneBenchRun
             inTheYearOneBillion
 
     -- TODO: a proper way to disable the leaky bucket
-    bucketConfig :: LeakyBucket.Config IO
-    bucketConfig = LeakyBucket.Config {
+    lopBucketConfig :: LeakyBucket.Config IO
+    lopBucketConfig = LeakyBucket.Config {
       LeakyBucket.capacity = 1,
       LeakyBucket.rate = 1,
       LeakyBucket.fillOnOverflow = True,
@@ -132,7 +132,7 @@ oneBenchRun
       }
 
     client :: LeakyBucket.Handler IO -> CSClient.Consensus ChainSyncClientPipelined B IO
-    client bucketHandler =
+    client lopBucket =
         CSClient.chainSyncClient
             CSClient.ConfigEnv {
                 CSClient.chainDbView
@@ -147,7 +147,7 @@ oneBenchRun
               , CSClient.controlMessageSTM   = return Continue
               , CSClient.headerMetricsTracer = nullTracer
               , CSClient.varCandidate
-              , CSClient.bucketHandler
+              , CSClient.lopBucket
               }
 
     server :: ChainSyncServer H (Point B) (Tip B) IO ()

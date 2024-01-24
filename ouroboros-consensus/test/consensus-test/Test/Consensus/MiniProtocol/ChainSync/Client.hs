@@ -82,8 +82,8 @@ import qualified Ouroboros.Consensus.HeaderStateHistory as HeaderStateHistory
 import           Ouroboros.Consensus.Ledger.Abstract
 import           Ouroboros.Consensus.Ledger.Extended hiding (ledgerState)
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
-                     (ChainDbView (..), ChainSyncBucketConfig (..),
-                     ChainSyncClientException, ChainSyncClientResult (..),
+                     (ChainDbView (..), ChainSyncClientException,
+                     ChainSyncClientResult (..), ChainSyncLoPBucketConfig (..),
                      ConfigEnv (..), Consensus, DynamicEnv (..), Our (..),
                      Their (..), TraceChainSyncClientEvent (..),
                      bracketChainSyncClient, chainSyncClient)
@@ -403,8 +403,8 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
             -- client's and server's clock as the tolerable clock skew.
 
         -- TODO: a proper way to disable ChainSync bucket
-        bucketConfig :: ChainSyncBucketConfig
-        bucketConfig = ChainSyncBucketConfig{
+        lopBucketConfig :: ChainSyncLoPBucketConfig
+        lopBucketConfig = ChainSyncLoPBucketConfig {
           csbcCapacity = 1,
           csbcRate = 1 % 1000000000
           }
@@ -414,7 +414,7 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                -> Consensus ChainSyncClientPipelined
                     TestBlock
                     m
-        client varCandidate bucketHandler =
+        client varCandidate lopBucket =
             chainSyncClient
               ConfigEnv {
                   chainDbView
@@ -429,7 +429,7 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                 , controlMessageSTM   = return Continue
                 , headerMetricsTracer = nullTracer
                 , varCandidate
-                , bucketHandler
+                , lopBucket
                 }
 
     -- Set up the server
@@ -502,13 +502,13 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
                  varCandidates
                  serverId
                  maxBound
-                 bucketConfig
-                 $ \varCandidate bucketHandler -> do
+                 lopBucketConfig
+                 $ \varCandidate lopBucket -> do
                    atomically $ modifyTVar varFinalCandidates $
                      Map.insert serverId varCandidate
                    result <-
                      runPipelinedPeer protocolTracer codecChainSyncId clientChannel $
-                       chainSyncClientPeerPipelined $ client varCandidate bucketHandler
+                       chainSyncClientPeerPipelined $ client varCandidate lopBucket
                    atomically $ writeTVar varClientResult (Just (ClientFinished result))
                    return ()
               `catchAlsoLinked` \ex -> do

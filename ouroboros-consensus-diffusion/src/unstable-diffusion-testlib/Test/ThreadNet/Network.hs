@@ -1023,7 +1023,7 @@ runThreadNetwork systemTime ThreadNetworkArgs
                      , idleTimeout      = waitForever
                      })
                   -- TODO: a proper way to disable ChainSync bucket
-                  (CSClient.ChainSyncBucketConfig
+                  (CSClient.ChainSyncLoPBucketConfig
                      { csbcCapacity = 1,
                        csbcRate = 1 % 1000000000
                      })
