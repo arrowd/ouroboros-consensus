@@ -72,6 +72,10 @@ mkChainSyncClientTracer peerId tracer =
         (if didGive then "Gave" else "Did not give")
         ++ " LoP token to " ++ terseHeader header
         ++ " compared to " ++ show bestBlockNo
+    TraceException exception ->
+      trace $ "Threw an exception: " ++ show exception
+    TraceTermination result ->
+      trace $ "Terminated with result: " ++ show result
     _ -> pure ()
   where
     trace = traceUnitWith tracer ("ChainSyncClient " ++ condense peerId)
