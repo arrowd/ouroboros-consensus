@@ -51,17 +51,18 @@ import           Test.Util.TestBlock (TestBlock)
 
 basicChainSyncClient :: forall m.
   IOLike m =>
+  PeerId ->
   Tracer m String ->
   TopLevelConfig TestBlock ->
   ChainDbView m TestBlock ->
   StrictTVar m TestFragH ->
   LeakyBucket.Handler m ->
   Consensus ChainSyncClientPipelined TestBlock m
-basicChainSyncClient tracer cfg chainDbView varCandidate lopBucket =
+basicChainSyncClient peerId tracer cfg chainDbView varCandidate lopBucket =
   chainSyncClient
     CSClient.ConfigEnv {
         CSClient.mkPipelineDecision0     = pipelineDecisionLowHighMark 10 20
-      , CSClient.tracer                  = mkChainSyncClientTracer tracer
+      , CSClient.tracer                  = mkChainSyncClientTracer peerId tracer
       , CSClient.cfg
       , CSClient.chainDbView
       , CSClient.someHeaderInFutureCheck = dummyHeaderInFutureCheck
@@ -112,7 +113,7 @@ runChainSyncClient
         codecChainSyncId
         chainSyncNoSizeLimits
         (timeLimitsChainSync chainSyncTimeouts)
-        (chainSyncClientPeerPipelined (basicChainSyncClient tracer cfg chainDbView varCandidate lopBucket))
+        (chainSyncClientPeerPipelined (basicChainSyncClient peerId tracer cfg chainDbView varCandidate lopBucket))
         (chainSyncServerPeer server)
       case res of
         Left exn -> do
