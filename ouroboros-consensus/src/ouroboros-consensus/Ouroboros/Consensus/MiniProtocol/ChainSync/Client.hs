@@ -1071,7 +1071,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                 StillIntersects ledgerView kis' -> do
                     kis'' <-
                         checkValid cfgEnv intEnv hdr theirTip kis' ledgerView
-                    kis''' <- checkLoP dynEnv hdr kis''
+                    kis''' <- checkLoP cfgEnv dynEnv hdr kis''
 
                     atomically $ writeTVar varCandidate (theirFrag kis''')
                     atomically
@@ -1440,15 +1440,18 @@ checkLoP ::
   forall m blk.
    ( IOLike m
    , HasHeader (Header blk) )
-  => DynamicEnv m blk
+  => ConfigEnv m blk
+  -> DynamicEnv m blk
   -> Header blk
   -> KnownIntersectionState blk
   -> m (KnownIntersectionState blk)
-checkLoP dynEnv hdr kis@KnownIntersectionState{kBestBlockNo} =
+checkLoP ConfigEnv{tracer} DynamicEnv{lopBucket} hdr kis@KnownIntersectionState{kBestBlockNo} =
   if blockNo hdr > kBestBlockNo
-    then do void $ LeakyBucket.fill (lopBucket dynEnv) 1
+    then do void $ LeakyBucket.fill lopBucket 1
+            traceWith tracer $ TraceGaveLoPToken True hdr kBestBlockNo
             pure $ kis{kBestBlockNo = blockNo hdr}
-    else pure kis
+    else do traceWith tracer $ TraceGaveLoPToken False hdr kBestBlockNo
+            pure kis
 
 {-------------------------------------------------------------------------------
   Utilities used in the *top functions
@@ -1806,6 +1809,11 @@ data TraceChainSyncClientEvent blk =
     TraceAccessingForecastHorizon SlotNo
     -- ^ The 'SlotNo', which was previously beyond the forecast horizon, has now
     -- entered it, and we can resume processing.
+  |
+    TraceGaveLoPToken Bool (Header blk) BlockNo
+    -- ^ Whether we added a token to the LoP bucket of the peer. Also carries
+    -- the considered header and the best block number known prior to this
+    -- header.
 
 deriving instance
   ( BlockSupportsProtocol blk

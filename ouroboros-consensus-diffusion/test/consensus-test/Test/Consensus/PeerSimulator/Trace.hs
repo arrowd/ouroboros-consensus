@@ -67,6 +67,11 @@ mkChainSyncClientTracer peerId tracer =
       trace $ "Validated header: " ++ terseHeader header
     TraceDownloadedHeader header ->
       trace $ "Downloaded header: " ++ terseHeader header
+    TraceGaveLoPToken didGive header bestBlockNo ->
+      trace $
+        (if didGive then "Gave" else "Did not give")
+        ++ " LoP token to " ++ terseHeader header
+        ++ " compared to " ++ show bestBlockNo
     _ -> pure ()
   where
     trace = traceUnitWith tracer ("ChainSyncClient " ++ condense peerId)
