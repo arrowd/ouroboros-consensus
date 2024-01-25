@@ -48,7 +48,6 @@ import           Test.Consensus.PointSchedule.Peers (PeerId)
 import           Test.Util.Orphans.IOLike ()
 import           Test.Util.TestBlock (TestBlock)
 
-
 basicChainSyncClient :: forall m.
   IOLike m =>
   PeerId ->
@@ -116,28 +115,24 @@ runChainSyncClient
         (chainSyncClientPeerPipelined (basicChainSyncClient peerId tracer cfg chainDbView varCandidate lopBucket))
         (chainSyncServerPeer server)
       case res of
+        Right _ -> pure ()
         Left exn -> do
           traceWith svtChainSyncExceptionsTracer $ ChainSyncException peerId exn
           case fromException exn of
-            Just (ExceededSizeLimit _) ->
-              traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminating because of size limit exceeded."
-            Just (ExceededTimeLimit _) ->
-              traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminating because of time limit exceeded."
-            Nothing ->
-              pure ()
+            Just (ExceededSizeLimit _) -> trace "Terminating because of size limit exceeded."
+            Just (ExceededTimeLimit _) -> trace "Terminating because of time limit exceeded."
+            Nothing -> pure ()
           case fromException exn of
-            Just ThreadKilled ->
-              traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminated by GDD governor."
-            _ ->
-              pure ()
+            Just ThreadKilled -> trace "Terminated by GDD governor."
+            _                 -> pure ()
           case fromException exn of
             -- REVIEW: Where does it get wrapped in 'ExceptionInLinkedThread'?
             -- LeakyBucket is supposed to unwrap it, but maybe somewhere else?
             Just (ExceptionInLinkedThread _ e) | fromException e == Just CSClient.EmptyBucket -> do
-              traceUnitWith tracer ("ChainSyncClient " ++ condense peerId) "Terminating because of empty bucket."
+              trace "Terminating because of empty bucket."
             _ -> pure ()
-        Right _ -> pure ()
   where
     ntnVersion :: NodeToNodeVersion
     ntnVersion = maxBound
+    trace = traceUnitWith tracer $ "ChainSyncClient " ++ condense peerId
     lopBucketConfig = CSClient.ChainSyncLoPBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}
