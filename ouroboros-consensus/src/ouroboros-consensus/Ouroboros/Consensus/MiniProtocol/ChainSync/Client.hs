@@ -1057,7 +1057,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
 
             checkKnownInvalid cfgEnv dynEnv intEnv hdr
 
-            checkTime cfgEnv intEnv kis arrival slotNo >>= \case
+            checkTime cfgEnv dynEnv intEnv kis arrival slotNo >>= \case
                 NoLongerIntersects ->
                     continueWithState ()
                   $ drainThePipe n
@@ -1231,19 +1231,21 @@ checkKnownInvalid cfgEnv dynEnv intEnv hdr = case scrutinee of
 --
 -- Finally, the client will block on the intersection a second time, if
 -- necessary, since it's possible for a ledger state to determine the slot's
--- onset's timestamp without also determining the slot's 'LedgerView'.
+-- onset's timestamp without also determining the slot's 'LedgerView'. During
+-- this pause, the LoP bucket is paused.
 checkTime ::
   forall m blk arrival judgment.
      ( IOLike m
      , LedgerSupportsProtocol blk
      )
   => ConfigEnv m blk
+  -> DynamicEnv m blk
   -> InternalEnv m blk arrival judgment
   -> KnownIntersectionState blk
   -> arrival
   -> SlotNo
   -> m (UpdatedIntersectionState blk (LedgerView (BlockProtocol blk)))
-checkTime cfgEnv intEnv =
+checkTime cfgEnv dynEnv intEnv =
     \kis arrival slotNo -> castEarlyExitIntersects $ do
         Intersects kis2 lst        <- checkArrivalTime kis arrival
         Intersects kis3 ledgerView <- case projectLedgerView slotNo lst of
@@ -1252,7 +1254,8 @@ checkTime cfgEnv intEnv =
               EarlyExit.lift $
                   traceWith (tracer cfgEnv)
                 $ TraceWaitingBeyondForecastHorizon slotNo
-              res <- readLedgerState kis2 (projectLedgerView slotNo)
+              res <- castM $ LeakyBucket.whilePausing (lopBucket dynEnv) $ pure $
+                       readLedgerState kis2 (projectLedgerView slotNo)
               EarlyExit.lift $
                   traceWith (tracer cfgEnv)
                 $ TraceAccessingForecastHorizon slotNo
