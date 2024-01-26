@@ -27,6 +27,7 @@ module Ouroboros.Consensus.Util.LeakyBucket (
   , evalAgainstBucket
   , execAgainstBucket
   , runAgainstBucket
+  , whilePausing
   ) where
 
 import           Data.Ratio ((%))
@@ -78,8 +79,22 @@ data Handler m = Handler {
   -- overflew. The bucket may silently get filled to full capacity or not get
   -- filled depending on 'fillOnOverflow'.
   pause  :: m (),
+  -- ^ Pause the bucket, stopping it from leaking until it is resumed. It is
+  -- still possible to fill it during that time. It does not matter if 'pause'
+  -- is called again on a paused bucket.
   resume :: m ()
+  -- ^ Resume the bucket, making it leak again. It does not matter if 'resume'
+  -- is called on a running bucket.
   }
+
+-- | Pause the bucket while performing the given action and resumes it when it
+-- is done.
+whilePausing :: Monad m => Handler m -> m a -> m a
+whilePausing handler action = do
+  pause handler
+  result <- action
+  resume handler
+  pure result
 
 -- | Create a bucket with the given configuration, then run the action against
 -- that bucket. Returns when the action terminates or the bucket empties. In the
