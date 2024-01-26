@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE NumericUnderscores  #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -135,4 +136,5 @@ runChainSyncClient
     ntnVersion :: NodeToNodeVersion
     ntnVersion = maxBound
     trace = traceUnitWith tracer $ "ChainSyncClient " ++ condense peerId
-    lopBucketConfig = CSClient.ChainSyncLoPBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}
+    -- FIXME: Enable LoP with reasonable parameters.
+    lopBucketConfig = CSClient.ChainSyncLoPBucketConfig{csbcCapacity = 1_000_000_000, csbcRate = 1 % 1_000_000_000}
