@@ -5,7 +5,9 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MonoLocalBinds             #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
@@ -28,23 +30,16 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Common (
   , getEnvSTM1
     -- * Forkers
   , ForkerEnv (..)
-  , ForkerKey (..)
   , getForkerEnv
   , getForkerEnv1
   , getForkerEnvSTM
-    -- * LedgerDB lock
-  , LedgerDBLock
-  , mkLedgerDBLock
-  , withReadLock
-  , withWriteLock
-    -- * Constraints
-  , LedgerDbSerialiseConstraints
+  , guardUncommitted
+  , guardUncommittedSTM
     -- * Exposed internals for testing purposes
   , Internals (..)
   , Internals'
   ) where
 
-import           Codec.Serialise.Class
 import           Control.Arrow
 import           Control.Tracer
 import           Data.Kind
@@ -52,22 +47,22 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
 import           Data.Word
-import           GHC.Generics
+import           GHC.Generics (Generic)
 import           NoThunks.Class
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
-import           Ouroboros.Consensus.HeaderValidation
 import           Ouroboros.Consensus.Ledger.Abstract
-import           Ouroboros.Consensus.Ledger.Extended (ExtLedgerState)
+import           Ouroboros.Consensus.Ledger.Extended
 import           Ouroboros.Consensus.Ledger.SupportsProtocol
-import           Ouroboros.Consensus.Protocol.Abstract
 import           Ouroboros.Consensus.Storage.LedgerDB.API as API
-import           Ouroboros.Consensus.Storage.LedgerDB.API.DiskPolicy
+import           Ouroboros.Consensus.Storage.LedgerDB.API.Config
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Common
+import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Snapshots
 import           Ouroboros.Consensus.Storage.LedgerDB.Impl.Validate
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Args
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.BackingStore
-import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog hiding
-                     (ResolveBlock)
-import           Ouroboros.Consensus.Storage.Serialisation
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
+import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
 import qualified Ouroboros.Consensus.Util.MonadSTM.RAWLock as Lock
@@ -91,8 +86,10 @@ deriving instance ( IOLike m
                   , NoThunks (l EmptyMK)
                   , NoThunks (Key l)
                   , NoThunks (Value l)
+                  , NoThunks (LedgerCfg l)
                   ) => NoThunks (LedgerDBState m l blk)
 
+type LedgerDBEnv :: (Type -> Type) -> LedgerStateKind -> Type -> Type
 data LedgerDBEnv m l blk = LedgerDBEnv {
     -- | INVARIANT: the tip of the 'LedgerDB' is always in sync with the tip of
     -- the current chain of the ChainDB.
@@ -132,15 +129,13 @@ data LedgerDBEnv m l blk = LedgerDBEnv {
   , ldbForkers        :: !(StrictTVar m (Map ForkerKey (ForkerEnv m l blk)))
   , ldbNextForkerKey  :: !(StrictTVar m ForkerKey)
 
-  , ldbDiskPolicy     :: !DiskPolicy
+  , ldbSnapshotPolicy :: !SnapshotPolicy
   , ldbTracer         :: !(Tracer m (TraceLedgerDBEvent blk))
-  , ldbCfg            :: !(TopLevelConfig blk)
+  , ldbCfg            :: !(LedgerDbCfg l)
   , ldbHasFS          :: !(SomeHasFS m)
   , ldbShouldFlush    :: !(Word64 -> Bool)
   , ldbQueryBatchSize :: !QueryBatchSize
   , ldbResolveBlock   :: !(ResolveBlock m blk)
-  , ldbSecParam       :: !SecurityParam
-  , ldbBsTracer       :: !(Tracer m BackingStoreTraceByBackend)
   } deriving (Generic)
 
 deriving instance ( IOLike m
@@ -148,6 +143,7 @@ deriving instance ( IOLike m
                   , NoThunks (l EmptyMK)
                   , NoThunks (Key l)
                   , NoThunks (Value l)
+                  , NoThunks (LedgerCfg l)
                   ) => NoThunks (LedgerDBEnv m l blk)
 
 -- | Check if the LedgerDB is open, if so, executing the given function on the
@@ -167,7 +163,7 @@ getEnv1 ::
   => LedgerDBHandle m l blk
   -> (LedgerDBEnv m l blk -> a -> m r)
   -> a -> m r
-getEnv1 h f a = getEnv h (\env -> f env a)
+getEnv1 h f a = getEnv h (`f` a)
 
 -- | Variant 'of 'getEnv' for functions taking two arguments.
 getEnv2 ::
@@ -209,10 +205,29 @@ getEnvSTM1 (LDBHandle varState) f a = readTVar varState >>= \case
   Forkers
 -------------------------------------------------------------------------------}
 
--- | An identifier for a 'Forker'. See 'ldbForkers'.
-newtype ForkerKey = ForkerKey Word16
-  deriving stock (Show, Eq, Ord)
-  deriving newtype (Enum, NoThunks)
+data ForkerUsedAfterCommit = ForkerUsedAfterCommit deriving (Show, Exception)
+
+guardUncommitted ::
+     (MonadSTM m, MonadThrow m)
+  => ForkerEnv m l blk
+  -> (AnchorlessDbChangelog l -> m a)
+  -> m a
+guardUncommitted env f = do
+  wasCommitted <- readTVarIO (foeWasCommitted env)
+  if wasCommitted
+    then throwIO ForkerUsedAfterCommit
+    else f =<< readTVarIO (foeChangelog env)
+
+guardUncommittedSTM ::
+     (MonadSTM m, MonadThrow (STM m))
+  => ForkerEnv m l blk
+  -> (AnchorlessDbChangelog l -> STM m a)
+  -> STM m a
+guardUncommittedSTM env f = do
+  wasCommitted <- readTVar (foeWasCommitted env)
+  if wasCommitted
+    then throwSTM ForkerUsedAfterCommit
+    else f =<< readTVar (foeChangelog env)
 
 data ForkerEnv m l blk = ForkerEnv {
     -- * Local, consistent view of ledger state
@@ -226,6 +241,7 @@ data ForkerEnv m l blk = ForkerEnv {
   , foeQueryBatchSize          :: !QueryBatchSize
     -- * Resource registry
   , foeResourceKey             :: !(ResourceKey m)
+  , foeTracer                  :: !(Tracer m TraceForkerEvent)
   }
   deriving Generic
 
@@ -270,65 +286,6 @@ getForkerEnvSTM (LDBHandle varState) forkerKey f = readTVar varState >>= \case
     LedgerDBOpen env -> readTVar (ldbForkers env) >>= (Map.lookup forkerKey >>> \case
       Nothing        -> throwSTM $ ClosedForkerError @blk prettyCallStack
       Just forkerEnv -> f forkerEnv)
-
-{-------------------------------------------------------------------------------
-  LedgerDB lock
--------------------------------------------------------------------------------}
-
--- | A lock to prevent the LedgerDB (i.e. a 'DbChangelog') from getting out of
--- sync with the 'BackingStore'.
---
--- We rely on the capability of the @BackingStore@s of providing
--- 'BackingStoreValueHandles' that can be used to hold a persistent view of the
--- database as long as the handle is open. Assuming this functionality, the lock
--- is used in three ways:
---
--- - Read lock to acquire a value handle: we do this when acquiring a view of the
---   'LedgerDB' (which lives in a 'StrictTVar' at the 'ChainDB' level) and of
---   the 'BackingStore'. We momentarily acquire a read lock, consult the
---   transactional variable and also open a 'BackingStoreValueHandle'. This is
---   the case for ledger state queries and for the forging loop.
---
--- - Read lock to ensure two operations are in sync: in the above situation, we
---   relied on the 'BackingStoreValueHandle' functionality, but sometimes we
---   won't access the values through a value handle, and instead we might use
---   the LMDB environment (as it is the case for 'lmdbCopy'). In these cases, we
---   acquire a read lock until we ended the copy, so that writers are blocked
---   until this process is completed. This is the case when taking a snapshot.
---
--- - Write lock when flushing differences.
-newtype LedgerDBLock m = LedgerDBLock (Lock.RAWLock m ())
-  deriving newtype NoThunks
-
-mkLedgerDBLock :: IOLike m => m (LedgerDBLock m)
-mkLedgerDBLock = LedgerDBLock <$> Lock.new ()
-
--- | Acquire the ledger DB read lock and hold it while performing an action
-withReadLock :: IOLike m => LedgerDBLock m -> m a -> m a
-withReadLock (LedgerDBLock lock) m =
-    Lock.withReadAccess lock (\() -> m)
-
--- | Acquire the ledger DB write lock and hold it while performing an action
-withWriteLock :: IOLike m => LedgerDBLock m -> m a -> m a
-withWriteLock (LedgerDBLock lock) m =
-    Lock.withWriteAccess lock (\() -> (,) () <$> m)
-
-{-------------------------------------------------------------------------------
-  Constraints
--------------------------------------------------------------------------------}
-
--- | Serialization constraints required by the 'LedgerDB' to be properly
--- instantiated with a @blk@.
-type LedgerDbSerialiseConstraints blk =
-  ( Serialise      (HeaderHash  blk)
-  , EncodeDisk blk (LedgerState blk EmptyMK)
-  , DecodeDisk blk (LedgerState blk EmptyMK)
-  , EncodeDisk blk (AnnTip      blk)
-  , DecodeDisk blk (AnnTip      blk)
-  , EncodeDisk blk (ChainDepState (BlockProtocol blk))
-  , DecodeDisk blk (ChainDepState (BlockProtocol blk))
-  , CanSerializeLedgerTables (LedgerState blk)
-  )
 
 {-------------------------------------------------------------------------------
   Exposed internals for testing purposes
