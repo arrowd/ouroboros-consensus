@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
@@ -96,6 +97,7 @@ import qualified Ouroboros.Consensus.Storage.VolatileDB as VolatileDB
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.Enclose (Enclosing, Enclosing' (..))
 import           Ouroboros.Consensus.Util.IOLike
+import           Ouroboros.Consensus.Util.Orphans ()
 import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Ouroboros.Consensus.Util.STM (WithFingerprint)
 import           Ouroboros.Consensus.Util.TentativeState (TentativeState (..))
@@ -233,7 +235,6 @@ data ChainDbEnv m blk = CDB
     -- Note that 'copyToImmutableDB' can still be executed concurrently with all
     -- others functions, just not with itself.
   , cdbTracer          :: !(Tracer m (TraceEvent blk))
-  , cdbTraceLedger     :: !(Tracer m (Forker' m blk))
   , cdbRegistry        :: !(ResourceRegistry m)
     -- ^ Resource registry that will be used to (re)start the background
     -- threads, see 'cdbBgThreads'.
@@ -245,8 +246,6 @@ data ChainDbEnv m blk = CDB
     -- garbage collections.
   , cdbKillBgThreads   :: !(StrictTVar m (m ()))
     -- ^ A handle to kill the background threads.
-  , cdbChunkInfo       :: !ImmutableDB.ChunkInfo
-  , cdbCheckIntegrity  :: !(blk -> Bool)
   , cdbCheckInFuture   :: !(CheckInFuture m blk)
   , cdbBlocksToAdd     :: !(BlocksToAdd m blk)
     -- ^ Queue of blocks that still have to be added.
@@ -504,19 +503,17 @@ closeBlocksToAdd (BlocksToAdd queue) = do
 
 -- | Trace type for the various events of the ChainDB.
 data TraceEvent blk
-  = TraceAddBlockEvent          (TraceAddBlockEvent           blk)
-  | TraceFollowerEvent          (TraceFollowerEvent           blk)
-  | TraceCopyToImmutableDBEvent (TraceCopyToImmutableDBEvent  blk)
-  | TraceGCEvent                (TraceGCEvent                 blk)
-  | TraceInitChainSelEvent      (TraceInitChainSelEvent       blk)
-  | TraceOpenEvent              (TraceOpenEvent               blk)
-  | TraceIteratorEvent          (TraceIteratorEvent           blk)
-  | TraceLedgerDBEvent          (TraceLedgerDBEvent           blk)
-  | TraceLedgerReplayEvent      (TraceReplayEvent             blk)
-  | TraceImmutableDBEvent       (ImmutableDB.TraceEvent       blk)
-  | TraceVolatileDBEvent        (VolatileDB.TraceEvent        blk)
+  = TraceAddBlockEvent            (TraceAddBlockEvent          blk)
+  | TraceFollowerEvent            (TraceFollowerEvent          blk)
+  | TraceCopyToImmutableDBEvent   (TraceCopyToImmutableDBEvent blk)
+  | TraceGCEvent                  (TraceGCEvent                blk)
+  | TraceInitChainSelEvent        (TraceInitChainSelEvent      blk)
+  | TraceOpenEvent                (TraceOpenEvent              blk)
+  | TraceIteratorEvent            (TraceIteratorEvent          blk)
+  | TraceLedgerDBEvent            (TraceLedgerDBEvent          blk)
+  | TraceImmutableDBEvent         (ImmutableDB.TraceEvent      blk)
+  | TraceVolatileDBEvent          (VolatileDB.TraceEvent       blk)
   deriving (Generic)
-
 
 deriving instance
   ( Eq (Header blk)
