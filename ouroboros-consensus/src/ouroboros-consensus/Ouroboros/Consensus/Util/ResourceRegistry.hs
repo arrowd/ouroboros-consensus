@@ -27,6 +27,7 @@ module Ouroboros.Consensus.Util.ResourceRegistry (
   , releaseAll
   , unsafeRelease
   , unsafeReleaseAll
+  , unsafeRemoveResource
     -- * Threads
   , cancelThread
   , forkLinkedThread
@@ -475,6 +476,9 @@ removeResource key = state $ \st ->
           , registryAges      = Bimap.delete key (registryAges st)
           }
     in  (mbResource, st')
+
+unsafeRemoveResource :: IOLike m => ResourceKey m -> m (Maybe (Resource m))
+unsafeRemoveResource (ResourceKey rr rid) = updateState rr $ removeResource rid
 
 -- | Insert thread into the set of known threads
 insertThread :: IOLike m => ThreadId m -> State (RegistryState m) ()
