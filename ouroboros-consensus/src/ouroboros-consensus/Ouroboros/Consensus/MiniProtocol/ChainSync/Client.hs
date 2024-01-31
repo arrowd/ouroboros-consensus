@@ -980,12 +980,17 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
         case (n, decision) of
           (Zero, (Request, mkPipelineDecision')) ->
               SendMsgRequestNext
-                  (handleNext kis mkPipelineDecision' Zero)
-                  ( -- when we have to wait
-                    return $ handleNext kis mkPipelineDecision' Zero
+                  (handleNext (return ()) kis mkPipelineDecision' Zero)
+                  (do -- When we have to wait, pause the LoP bucket. It will
+                      -- start again at the next message from that peer.
+                    LeakyBucket.pause (lopBucket dynEnv)
+                    return $ handleNext (LeakyBucket.resume (lopBucket dynEnv)) kis mkPipelineDecision' Zero
                   )
 
           (_, (Pipeline, mkPipelineDecision')) ->
+            -- TODO: Rebase on
+            -- https://github.com/IntersectMBO/ouroboros-network/pull/4791 and
+            -- handle pausing the LoP bucket when `MsgAwaitReply` is received.
               SendMsgRequestNextPipelined
             $ requestNext
                   kis
@@ -1006,20 +1011,22 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                           theirTip
                           candTipBlockNo
                   )
-                  (handleNext kis mkPipelineDecision' n')
+                  (handleNext (return ()) kis mkPipelineDecision' n')
 
           (Succ n', (Collect, mkPipelineDecision')) ->
               CollectResponse
                   Nothing
-                  (handleNext kis mkPipelineDecision' n')
+                  (handleNext (return ()) kis mkPipelineDecision' n')
 
     handleNext ::
-        KnownIntersectionState blk
+        m () -- ^ an action to run when waking up; never skip breakfast
+     -> KnownIntersectionState blk
      -> MkPipelineDecision
      -> Nat n
      -> Consensus (ClientStNext n) blk m
-    handleNext kis mkPipelineDecision n = ClientStNext {
+    handleNext haveBreakfast kis mkPipelineDecision n = ClientStNext {
         recvMsgRollForward = \hdr theirTip -> do
+            haveBreakfast
             traceWith tracer $ TraceDownloadedHeader hdr
             continueWithState kis $
                 rollForward
@@ -1029,6 +1036,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                     (Their theirTip)
       ,
         recvMsgRollBackward = \intersection theirTip -> do
+            haveBreakfast
             let intersection' :: Point blk
                 intersection' = castPoint intersection
             traceWith tracer $ TraceRolledBack intersection'
