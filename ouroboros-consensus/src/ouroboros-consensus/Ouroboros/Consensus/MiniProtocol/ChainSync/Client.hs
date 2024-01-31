@@ -1049,7 +1049,16 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
             (KnownIntersectionState blk)
             (ClientPipelinedStIdle n)
     rollForward mkPipelineDecision n hdr theirTip =
-        Stateful $ \kis -> traceException $ do
+        Stateful $ \kis -> traceException $
+
+          -- Pause the LoP bucket if we are _not_ NewBestHeader-Starved, that is
+          -- if we get a header that is better (in term of block number) than
+          -- any other seen before for this peer.
+          LeakyBucket.withPauseIf
+            (pure $ blockNo hdr > kBestBlockNo kis)
+            (lopBucket dynEnv)
+            $ do
+
             arrival     <- recordHeaderArrival hdr
             arrivalTime <- getMonotonicTime
 
@@ -1254,6 +1263,7 @@ checkTime cfgEnv dynEnv intEnv =
               EarlyExit.lift $
                   traceWith (tracer cfgEnv)
                 $ TraceWaitingBeyondForecastHorizon slotNo
+              -- Pause the bucket if LedgerView-Starved.
               res <- castM $ LeakyBucket.withPause (lopBucket dynEnv) $ pure $
                        readLedgerState kis2 (projectLedgerView slotNo)
               EarlyExit.lift $
