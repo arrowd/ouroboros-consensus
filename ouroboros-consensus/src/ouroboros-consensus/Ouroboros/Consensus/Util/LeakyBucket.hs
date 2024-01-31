@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE NumericUnderscores  #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -27,7 +28,8 @@ module Ouroboros.Consensus.Util.LeakyBucket (
   , evalAgainstBucket
   , execAgainstBucket
   , runAgainstBucket
-  , whilePausing
+  , withPause
+  , withPauseIf
   ) where
 
 import           Data.Ratio ((%))
@@ -87,14 +89,21 @@ data Handler m = Handler {
   -- is called on a running bucket.
   }
 
--- | Pause the bucket while performing the given action and resumes it when it
--- is done.
-whilePausing :: Monad m => Handler m -> m a -> m a
-whilePausing handler action = do
-  pause handler
-  result <- action
-  resume handler
-  pure result
+-- | Perform the given action with the bucket paused.
+withPause :: Monad m => Handler m -> m a -> m a
+withPause = withPauseIf $ pure True
+
+-- | Perform the given action. The bucket is paused if the given boolean
+-- evaluates to 'True'.
+withPauseIf :: Monad m => m Bool -> Handler m -> m a -> m a
+withPauseIf test handler action =
+  test >>= \case
+    True -> do
+      pause handler
+      result <- action
+      resume handler
+      pure result
+    False -> action
 
 -- | Create a bucket with the given configuration, then run the action against
 -- that bucket. Returns when the action terminates or the bucket empties. In the

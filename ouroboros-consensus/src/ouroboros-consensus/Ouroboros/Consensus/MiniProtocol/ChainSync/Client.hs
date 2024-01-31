@@ -1254,7 +1254,7 @@ checkTime cfgEnv dynEnv intEnv =
               EarlyExit.lift $
                   traceWith (tracer cfgEnv)
                 $ TraceWaitingBeyondForecastHorizon slotNo
-              res <- castM $ LeakyBucket.whilePausing (lopBucket dynEnv) $ pure $
+              res <- castM $ LeakyBucket.withPause (lopBucket dynEnv) $ pure $
                        readLedgerState kis2 (projectLedgerView slotNo)
               EarlyExit.lift $
                   traceWith (tracer cfgEnv)
