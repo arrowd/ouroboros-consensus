@@ -200,7 +200,7 @@ implValidate h ldbEnv =
         prev <- readTVar (ldbPrevApplied ldbEnv)
         writeTVar (ldbPrevApplied ldbEnv) (foldl' (flip Set.insert) prev l))
     (readTVar (ldbPrevApplied ldbEnv))
-    (newForkerAtFromTip h)
+    (\r w -> newForkerAtFromTip h r w "validate")
 
 implGetPrevApplied :: MonadSTM m => LedgerDBEnv m l blk -> STM m (Set (RealPoint blk))
 implGetPrevApplied env = readTVar (ldbPrevApplied env)

@@ -217,6 +217,7 @@ getReadOnlyForkerAtPoint ::
      IOLike m
   => ChainDbEnv m blk
   -> ResourceRegistry m
+  -> String
   -> Maybe (Point blk)
   -> m (Either GetForkerError (ReadOnlyForker' m blk))
 getReadOnlyForkerAtPoint CDB{..} = LedgerDB.getReadOnlyForker cdbLedgerDB
@@ -224,11 +225,12 @@ getReadOnlyForkerAtPoint CDB{..} = LedgerDB.getReadOnlyForker cdbLedgerDB
 getLedgerTablesAtFor ::
      IOLike m
   => ChainDbEnv m blk
+  -> String
   -> Point blk
   -> LedgerTables (ExtLedgerState blk) KeysMK
   -> m (Maybe (LedgerTables (ExtLedgerState blk) ValuesMK))
 getLedgerTablesAtFor =
-      (\ldb pt ks -> eitherToMaybe <$> LedgerDB.readLedgerTablesAtFor ldb pt ks)
+      (\ldb s pt ks -> eitherToMaybe <$> LedgerDB.readLedgerTablesAtFor ldb s pt ks)
     . cdbLedgerDB
 
 getStatistics :: IOLike m => ChainDbEnv m blk -> m (Maybe Statistics)

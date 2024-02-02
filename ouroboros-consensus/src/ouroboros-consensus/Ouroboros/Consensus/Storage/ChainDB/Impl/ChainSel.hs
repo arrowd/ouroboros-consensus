@@ -122,7 +122,7 @@ initialChainSelection immutableDB volatileDB lgrDB rr tracer cfg varInvalid
     --
     -- We don't use 'LedgerDB.withTipForker' here, because 'curForker' might be
     -- returned as part of the selected chain.
-    curForker <- LedgerDB.getForkerAtTip lgrDB rr
+    curForker <- LedgerDB.getForkerAtTip lgrDB rr "initial chain selection"
 
     chains <- constructChains i succsOf
 
@@ -469,7 +469,7 @@ chainSelectionForBlock cdb@CDB{..} blockCache hdr punish = withRegistry $ \rr ->
           <*> Query.getTipPoint               cdb
     -- This is safe: the LedgerDB doesn't change in between the previous
     -- atomically block and this call to 'withTipForker'.
-    LedgerDB.withTipForker cdbLedgerDB rr $ \curForker -> do
+    LedgerDB.withTipForker cdbLedgerDB rr "chain selection for block" $ \curForker -> do
       curChainAndLedger :: ChainAndLedger m blk <-
             -- The current chain we're working with here is not longer than @k@
             -- blocks (see 'getCurrentChain' and 'cdbChain'), which is easier to
@@ -740,7 +740,7 @@ chainSelectionForBlock cdb@CDB{..} blockCache hdr punish = withRegistry $ \rr ->
           $ AF.headPoint
           $ getSuffix
           $ getChainDiff vChainDiff
-        currentForker <- LedgerDB.getForkerAtTip cdbLedgerDB rr
+        currentForker <- LedgerDB.getForkerAtTip cdbLedgerDB rr "switchTo.currentForker"
         (curChain, newChain, events, prevTentativeHeader) <- atomically $ do
           curChain  <- readTVar         cdbChain -- Not Query.getCurrentChain!
           curLedger <- LedgerDB.forkerGetLedgerState currentForker

@@ -193,6 +193,7 @@ data LedgerDB m l blk = LedgerDB {
 #if __GLASGOW_HASKELL__ >= 902
          -- ^ The producer/consumer registry.
 #endif
+      -> String
       -> m (Forker m l blk)
     -- | Acquire a 'Forker' at the requested point. If a ledger state associated
     -- with the requested point does not exist in the LedgerDB, it will return a
@@ -202,6 +203,7 @@ data LedgerDB m l blk = LedgerDB {
 #if __GLASGOW_HASKELL__ >= 902
          -- ^ The producer/consumer registry.
 #endif
+      -> String
       -> Point blk
       -> m (Either GetForkerError (Forker m l blk))
   , validate ::
@@ -383,23 +385,25 @@ withTipForker ::
      IOLike m
   => LedgerDB m l blk
   -> ResourceRegistry m
+  -> String
   -> (Forker m l blk -> m a) -> m a
-withTipForker ldb rr = bracket (getForkerAtTip ldb rr) forkerClose
+withTipForker ldb rr why = bracket (getForkerAtTip ldb rr why) forkerClose
 
 -- | Like 'withTipForker', but it uses a private registry to allocate and
 -- de-allocate the forker.
 withPrivateTipForker ::
      IOLike m
   => LedgerDB m l blk
+  -> String
   -> (Forker m l blk -> m a) -> m a
-withPrivateTipForker ldb = bracketWithPrivateRegistry (getForkerAtTip ldb) forkerClose
+withPrivateTipForker ldb why = bracketWithPrivateRegistry (\rr -> getForkerAtTip ldb rr why) forkerClose
 
 -- | Get statistics from the tip of the LedgerDB.
 getTipStatistics ::
      IOLike m
   => LedgerDB m l blk
   -> m (Maybe Statistics)
-getTipStatistics ldb = withPrivateTipForker ldb forkerReadStatistics
+getTipStatistics ldb = withPrivateTipForker ldb "statistics" forkerReadStatistics
 
 {-------------------------------------------------------------------------------
   Read-only forkers
@@ -449,22 +453,24 @@ getReadOnlyForker ::
      MonadSTM m
   => LedgerDB m l blk
   -> ResourceRegistry m
+  -> String
   -> Maybe (Point blk)
   -> m (Either GetForkerError (ReadOnlyForker m l blk))
-getReadOnlyForker ldb rr = \case
-    Nothing -> Right . readOnlyForker <$> getForkerAtTip ldb rr
-    Just pt -> fmap readOnlyForker <$> getForkerAtPoint ldb rr pt
+getReadOnlyForker ldb rr why = \case
+    Nothing -> Right . readOnlyForker <$> getForkerAtTip ldb rr why
+    Just pt -> fmap readOnlyForker <$> getForkerAtPoint ldb rr why pt
 
 -- | Read a table of values at the requested point via a 'ReadOnlyForker'
 readLedgerTablesAtFor ::
      IOLike m
   => LedgerDB m l blk
+  -> String
   -> Point blk
   -> LedgerTables l KeysMK
   -> m (Either GetForkerError (LedgerTables l ValuesMK))
-readLedgerTablesAtFor ldb p ks =
+readLedgerTablesAtFor ldb why p ks =
     bracketWithPrivateRegistry
-      (\rr -> fmap readOnlyForker <$> getForkerAtPoint ldb rr p)
+      (\rr -> fmap readOnlyForker <$> getForkerAtPoint ldb rr why p)
       (mapM_ roforkerClose)
       $ \foEith -> do
         forM foEith $ \fo -> do
@@ -549,7 +555,7 @@ data TraceForkerEventWithKey =
   deriving (Show, Eq)
 
 data TraceForkerEvent =
-    ForkerOpen
+    ForkerOpen String
   | ForkerCloseUncommitted
   | ForkerCloseCommitted
   | ForkerReadTablesStart

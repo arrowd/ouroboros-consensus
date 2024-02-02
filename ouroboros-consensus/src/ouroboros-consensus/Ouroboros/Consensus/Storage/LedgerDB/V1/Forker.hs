@@ -55,9 +55,10 @@ newForkerAtTip ::
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
+  -> String
   -> m (Forker m l blk)
-newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
-    withReadLock (ldbLock ldbEnv) (acquireAtTip ldbEnv rr) >>= newForker h ldbEnv
+newForkerAtTip h rr why = getEnv h $ \ldbEnv -> do
+    withReadLock (ldbLock ldbEnv) (acquireAtTip ldbEnv rr) >>= newForker why h ldbEnv
 
 newForkerAtPoint ::
      ( HeaderHash l ~ HeaderHash blk
@@ -69,10 +70,11 @@ newForkerAtPoint ::
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
+  -> String
   -> Point blk
   -> m (Either GetForkerError (Forker m l blk))
-newForkerAtPoint h rr pt = getEnv h $ \ldbEnv -> do
-    withReadLock (ldbLock ldbEnv) (acquireAtPoint ldbEnv rr pt) >>= traverse (newForker h ldbEnv)
+newForkerAtPoint h rr why pt = getEnv h $ \ldbEnv -> do
+    withReadLock (ldbLock ldbEnv) (acquireAtPoint ldbEnv rr pt) >>= traverse (newForker why h ldbEnv)
 
 newForkerAtFromTip ::
      ( IOLike m
@@ -82,10 +84,11 @@ newForkerAtFromTip ::
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
+  -> String
   -> Word64
   -> m (Either ExceededRollback (Forker m l blk))
-newForkerAtFromTip h rr n = getEnv h $ \ldbEnv -> do
-    withReadLock (ldbLock ldbEnv) (acquireAtFromTip ldbEnv rr n) >>= traverse (newForker h ldbEnv)
+newForkerAtFromTip h rr why n = getEnv h $ \ldbEnv -> do
+    withReadLock (ldbLock ldbEnv) (acquireAtFromTip ldbEnv rr n) >>= traverse (newForker why h ldbEnv)
 
 -- | Close all open block and header 'Follower's.
 closeAllForkers ::
@@ -201,11 +204,12 @@ newForker ::
      , NoThunks (l EmptyMK)
      , GetTip l
      )
-  => LedgerDBHandle m l blk
+  => String
+  -> LedgerDBHandle m l blk
   -> LedgerDBEnv m l blk
   -> Resources m l
   -> m (Forker m l blk)
-newForker h ldbEnv (vh, dblog) = do
+newForker why h ldbEnv (vh, dblog) = do
   dblogVar     <- newTVarIO dblog
   wasCommitted <- newTVarIO False
   forkerKey    <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
@@ -219,7 +223,7 @@ newForker h ldbEnv (vh, dblog) = do
     , foeWasCommitted            = wasCommitted
     }
   atomically $ modifyTVar (ldbForkers ldbEnv) $ Map.insert forkerKey forkerEnv
-  traceWith (foeTracer forkerEnv) ForkerOpen
+  traceWith (foeTracer forkerEnv) (ForkerOpen why)
   pure $ mkForker h forkerKey
 
 mkForker ::

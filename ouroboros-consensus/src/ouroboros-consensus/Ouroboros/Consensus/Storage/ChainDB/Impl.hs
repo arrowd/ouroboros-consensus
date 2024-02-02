@@ -225,8 +225,8 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
             , getImmutableLedger       = getEnvSTM  h Query.getImmutableLedger
             , getPastLedger            = getEnvSTM1 h Query.getPastLedger
             , getHeaderStateHistory    = getEnvSTM  h Query.getHeaderStateHistory
-            , getReadOnlyForkerAtPoint = getEnv2    h Query.getReadOnlyForkerAtPoint
-            , getLedgerTablesAtFor     = getEnv2    h Query.getLedgerTablesAtFor
+            , getReadOnlyForkerAtPoint = getEnv3    h Query.getReadOnlyForkerAtPoint
+            , getLedgerTablesAtFor     = getEnv3    h Query.getLedgerTablesAtFor
             , getStatistics            = getEnv     h Query.getStatistics
             }
           testing = Internal

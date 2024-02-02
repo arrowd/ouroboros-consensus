@@ -306,7 +306,7 @@ forkBlockForging IS{..} blockForging =
       -- 'ChainDB.getReadOnlyForkerAtPoint', we switched to a fork where 'bcPrevPoint'
       -- is no longer on our chain. When that happens, we simply give up on the
       -- chance to produce a block.
-      forkerEith <- lift $ ChainDB.getReadOnlyForkerAtPoint chainDB reg (Just bcPrevPoint)
+      forkerEith <- lift $ ChainDB.getReadOnlyForkerAtPoint chainDB reg "nodeKernel" (Just bcPrevPoint)
       -- before 'earlyExit' we need to 'roforkerClose' this value handle. Once we get
       -- a snapshot we can just close it.
       forker <- case forkerEith of

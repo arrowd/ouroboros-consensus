@@ -180,6 +180,7 @@ data ChainDB m blk = ChainDB {
       -- change the internal state of the LedgerDB.
     , getReadOnlyForkerAtPoint ::
            ResourceRegistry m
+        -> String
         -> Maybe (Point blk)
         -> m (Either GetForkerError (ReadOnlyForker' m blk))
 
@@ -351,7 +352,7 @@ data ChainDB m blk = ChainDB {
       -- This is intended to be used by the mempool to hydrate a ledger state at
       -- a specific point.
     , getLedgerTablesAtFor ::
-           Point blk
+           String -> Point blk
         -> LedgerTables (ExtLedgerState blk) KeysMK
         -> m (Maybe (LedgerTables (ExtLedgerState blk) ValuesMK))
 

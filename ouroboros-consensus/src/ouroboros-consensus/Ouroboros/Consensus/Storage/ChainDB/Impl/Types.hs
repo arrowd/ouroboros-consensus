@@ -60,6 +60,7 @@ module Ouroboros.Consensus.Storage.ChainDB.Impl.Types (
   , TraceOpenEvent (..)
   , TracePipeliningEvent (..)
   , TraceValidationEvent (..)
+  , getEnv3
   ) where
 
 import           Control.Tracer
@@ -138,6 +139,13 @@ getEnv2 :: (IOLike m, HasCallStack, HasHeader blk)
         -> (ChainDbEnv m blk -> a -> b -> m r)
         -> a -> b -> m r
 getEnv2 h f a b = getEnv h (\env -> f env a b)
+
+-- | Variant 'of 'getEnv' for functions taking two arguments.
+getEnv3 :: (IOLike m, HasCallStack, HasHeader blk)
+        => ChainDbHandle m blk
+        -> (ChainDbEnv m blk -> a -> b -> c -> m r)
+        -> a -> b -> c -> m r
+getEnv3 h f a b c = getEnv h (\env -> f env a b c)
 
 
 -- | Variant of 'getEnv' that works in 'STM'.

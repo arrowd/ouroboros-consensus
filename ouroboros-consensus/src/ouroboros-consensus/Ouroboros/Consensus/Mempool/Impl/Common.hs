@@ -182,7 +182,7 @@ chainDBLedgerInterface chainDB = LedgerInterface
         let keys = castLedgerTables
                  $ foldl' (<>) emptyLedgerTables
                  $ map getTransactionKeySets txs
-        fmap castLedgerTables <$> ChainDB.getLedgerTablesAtFor chainDB pt keys
+        fmap castLedgerTables <$> ChainDB.getLedgerTablesAtFor chainDB "mempool" pt keys
     }
 
 {-------------------------------------------------------------------------------

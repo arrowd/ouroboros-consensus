@@ -364,20 +364,23 @@ newForker ::
      )
   => LedgerDBHandle m l blk
   -> LedgerDBEnv m l blk
+  -> String
   -> ResourceRegistry m
   -> StateRef m l
   -> m (Forker m l blk)
-newForker h ldbEnv rr st = do
+newForker h ldbEnv why rr st = do
+    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
+    let tr = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
+    traceWith tr (ForkerOpen why)
     lseqVar   <- newTVarIO . ForkerLedgerSeq . AS.Empty $ st
     toRemove  <- newTVarIO []
     toRelease <- newTVarIO []
     committed <- newTVarIO False
-    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
     let forkerEnv = ForkerEnv {
         foeLedgerSeq          = lseqVar
       , foeSwitchVar          = ldbSeq ldbEnv
       , foeSecurityParam      = ledgerDbCfgSecParam $ ldbCfg ldbEnv
-      , foeTracer             = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
+      , foeTracer             = tr
       , foeResourcesToRemove  = toRemove
       , foeResourcesToRelease = toRelease
       , foeWasCommitted       = committed
@@ -599,9 +602,10 @@ newForkerAtTip ::
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
+  -> String
   -> m (Forker m l blk)
-newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
-    acquireAtTip ldbEnv rr >>= newForker h ldbEnv rr
+newForkerAtTip h rr why = getEnv h $ \ldbEnv -> do
+    acquireAtTip ldbEnv rr >>= newForker h ldbEnv why rr
 
 newForkerAtPoint ::
      ( HeaderHash l ~ HeaderHash blk
@@ -613,10 +617,11 @@ newForkerAtPoint ::
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
+  -> String
   -> Point blk
   -> m (Either GetForkerError (Forker m l blk))
-newForkerAtPoint h rr pt = getEnv h $ \ldbEnv -> do
-    acquireAtPoint ldbEnv pt rr >>= traverse (newForker h ldbEnv rr)
+newForkerAtPoint h rr why pt = getEnv h $ \ldbEnv -> do
+    acquireAtPoint ldbEnv pt rr >>= traverse (newForker h ldbEnv why rr)
 
 newForkerAtFromTip ::
      ( IOLike m
@@ -627,9 +632,10 @@ newForkerAtFromTip ::
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
   -> Word64
+  -> String
   -> m (Either ExceededRollback (Forker m l blk))
-newForkerAtFromTip h rr n = getEnv h $ \ldbEnv -> do
-    acquireAtFromTip ldbEnv n rr >>= traverse (newForker h ldbEnv rr)
+newForkerAtFromTip h rr n why = getEnv h $ \ldbEnv -> do
+    acquireAtFromTip ldbEnv n rr >>= traverse (newForker h ldbEnv why rr)
 
 -- | Close all open block and header 'Follower's.
 closeAllForkers ::
