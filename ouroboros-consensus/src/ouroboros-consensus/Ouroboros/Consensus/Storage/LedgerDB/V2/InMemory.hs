@@ -87,7 +87,7 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
     , read = \keys -> do
         hs <- readTVarIO ioref
         guardClosed hs (\st -> pure $ ltliftA2 rawRestrictValues st keys)
-    , readRange = undefined -- TODO (js) -- \(f, t) -> do
+    , readRange = \(_f, _t) -> undefined
         -- hs <- readTVarIO ioref
         -- guardClosed hs (\(LedgerTables (ValuesMK m)) ->
         --                   pure . LedgerTables . ValuesMK . fst . Map.split t . snd . Map.split f $ m)
