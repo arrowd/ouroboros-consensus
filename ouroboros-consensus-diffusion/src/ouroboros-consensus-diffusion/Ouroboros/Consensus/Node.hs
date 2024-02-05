@@ -56,13 +56,13 @@ import qualified Codec.CBOR.Decoding as CBOR
 import qualified Codec.CBOR.Encoding as CBOR
 import           Codec.Serialise (DeserialiseFailure)
 import           Control.DeepSeq (NFData)
+import           Control.Monad (forM_)
 import           Control.Monad.Class.MonadTime.SI (MonadTime)
 import           Control.Monad.Class.MonadTimer.SI (MonadTimer)
 import           Control.Tracer (Tracer, contramap, traceWith)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Functor.Contravariant (Predicate (..))
 import           Data.Hashable (Hashable)
-import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isNothing)
@@ -88,7 +88,6 @@ import           Ouroboros.Consensus.Node.ProtocolInfo
 import           Ouroboros.Consensus.Node.Recovery
 import           Ouroboros.Consensus.Node.RethrowPolicy
 import           Ouroboros.Consensus.Node.Run
-import           Ouroboros.Consensus.Node.StartupWarning
 import           Ouroboros.Consensus.Node.Tracers
 import           Ouroboros.Consensus.NodeKernel
 import           Ouroboros.Consensus.Storage.ChainDB (ChainDB, ChainDbArgs)
@@ -366,11 +365,8 @@ runWith RunNodeArgs{..} encAddrNtN decAddrNtN LowLevelRunNodeArgs{..} =
                   , ChainDB.cdbVolatileDbValidation  = ValidateAll
                   }
 
-        case checkSecurityParamConsistency cfg of
-          _ :| [] -> pure ()
-          ks@(_ :| _) ->
-              traceWith (consensusSanityCheckTracer rnTraceConsensus) $
-              InconsistentSecurityParam ks
+        forM_ (sanityCheckConfig cfg) $ \issue ->
+          traceWith (consensusSanityCheckTracer rnTraceConsensus) issue
 
         chainDB <- openChainDB registry inFuture cfg initLedger
                   llrnChainDbArgsDefaults customiseChainDbArgs'

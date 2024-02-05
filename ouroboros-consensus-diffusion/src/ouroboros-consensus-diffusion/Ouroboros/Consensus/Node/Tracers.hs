@@ -41,8 +41,6 @@ import           Ouroboros.Network.TxSubmission.Inbound
                      (TraceTxSubmissionInbound)
 import           Ouroboros.Network.TxSubmission.Outbound
                      (TraceTxSubmissionOutbound)
-import           Ouroboros.Consensus.Node.StartupWarning
-                     (StartupWarning)
 
 {-------------------------------------------------------------------------------
   All tracers of a node bundled together
@@ -63,7 +61,7 @@ data Tracers' remotePeer localPeer blk f = Tracers
   , blockchainTimeTracer          :: f (TraceBlockchainTimeEvent UTCTime)
   , forgeStateInfoTracer          :: f (TraceLabelCreds (ForgeStateInfo blk))
   , keepAliveClientTracer         :: f (TraceKeepAliveClient remotePeer)
-  , consensusSanityCheckTracer    :: f StartupWarning
+  , consensusSanityCheckTracer    :: f SanityCheckIssue
   , consensusErrorTracer          :: f SomeException
   }
 
