@@ -1,5 +1,6 @@
 module Main (main) where
 
+import qualified Test.Consensus.GSM
 import qualified Test.Consensus.Genesis.Tests (tests)
 import qualified Test.Consensus.HardFork.Combinator (tests)
 import qualified Test.Consensus.Node (tests)
@@ -20,4 +21,5 @@ tests =
           ]
       ]
   , Test.Consensus.Genesis.Tests.tests
+  , testGroup "GSM" Test.Consensus.GSM.tests
   ]
