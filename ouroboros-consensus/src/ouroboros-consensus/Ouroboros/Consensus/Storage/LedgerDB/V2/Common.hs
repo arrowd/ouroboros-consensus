@@ -532,7 +532,7 @@ implForkerCommit env = do
     writeTVar (foeWasCommitted env) True
 
   where
-    theImpossible =
+    theImpossible = trace "BLAH" $
       error $ unwords [ "Critical invariant violation:"
                       , "Forker chain does no longer intersect with selected chain."
                       ]
