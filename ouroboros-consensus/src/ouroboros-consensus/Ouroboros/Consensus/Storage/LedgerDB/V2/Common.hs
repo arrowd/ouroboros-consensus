@@ -510,7 +510,7 @@ implForkerCommit env = do
     statesToClose <- stateTVar
       (foeSwitchVar env)
       (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
-         (olddb', toClose) <- AS.splitAfterMeasure (trace (unlines . map (show . getTipSlot . state) $ AS.toOldestFirst olddb) $ traceShowId intersectionSlot) (const True) olddb
+         (olddb', toClose) <- AS.splitAfterMeasure (trace (show $ getTipSlot $  state $ AS.anchor lseq) $ trace (unlines . map (show . getTipSlot . state) $ AS.toOldestFirst olddb) $ traceShowId intersectionSlot) (const True) olddb
          mapM_ (\x -> trace (show $ getTip $ state $ tsrStateRef x) (pure $ Just x)) $ AS.toOldestFirst lseq
          newdb <- trace (show $ getTip $ current $ LedgerSeq olddb') AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
          pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
