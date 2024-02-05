@@ -212,7 +212,7 @@ newForker ::
 newForker why h ldbEnv (vh, dblog) = do
   dblogVar     <- newTVarIO dblog
   wasCommitted <- newTVarIO False
-  forkerKey    <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
+  forkerKey    <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, r + 1)
   let forkerEnv = ForkerEnv {
       foeBackingStoreValueHandle = vh
     , foeChangelog               = dblogVar
