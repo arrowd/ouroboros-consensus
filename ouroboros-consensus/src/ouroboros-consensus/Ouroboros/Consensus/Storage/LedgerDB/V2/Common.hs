@@ -44,7 +44,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Set (Set)
 import           Data.Word
-import           Debug.Trace (trace)
+import           Debug.Trace (trace, traceShowId)
 import           GHC.Generics
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
@@ -361,7 +361,7 @@ newForker ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      , NoThunks (l EmptyMK)
-     , GetTip l
+     , GetTip l, Show (l EmptyMK)
      )
   => LedgerDBHandle m l blk
   -> LedgerDBEnv m l blk
@@ -501,7 +501,7 @@ implForkerPush ldbEnv rr env newState = do
     traceWith (foeTracer env) ForkerPushEnd
 
 implForkerCommit ::
-     (MonadSTM m, GetTip l, MonadThrow (STM m))
+     (MonadSTM m, GetTip l, MonadThrow (STM m), Show (l EmptyMK))
   => ForkerEnv m l blk
   -> STM m ()
 implForkerCommit env = do
@@ -510,8 +510,8 @@ implForkerCommit env = do
     statesToClose <- stateTVar
       (foeSwitchVar env)
       (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
-         (olddb', toClose) <- AS.splitAfterMeasure intersectionSlot (const True) olddb
-         newdb <- AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
+         (olddb', toClose) <- traceShowId $ AS.splitAfterMeasure (traceShowId intersectionSlot) (const True) (traceShowId olddb)
+         newdb <- traceShowId $ AS.join (const $ const True) olddb' $ traceShowId $ AS.mapPreservingMeasure tsrStateRef lseq
          pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
       )
 
