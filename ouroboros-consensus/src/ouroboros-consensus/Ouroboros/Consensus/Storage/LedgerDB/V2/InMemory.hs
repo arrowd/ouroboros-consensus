@@ -96,7 +96,7 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
         $ modifyTVar ioref
         (`guardClosed` (\st -> LedgerTablesHandleOpen (ltliftA2 rawApplyDiffs st diffs)))
     , writeToDisk = \snapshotName -> do
-        createDirectory hasFS $ mkFsPath [snapshotName]
+        createDirectoryIfMissing hasFS True $ mkFsPath [snapshotName, "tables"]
         h <- readTVarIO ioref
         guardClosed h $
           \values ->
@@ -129,8 +129,9 @@ writeSnapshot ::
   -> DiskSnapshot
   -> StateRef m (ExtLedgerState blk)
   -> m ()
-writeSnapshot fs encLedger ds st = do
-    writeExtLedgerState fs encLedger (snapshotToDirPath ds) $ state st
+writeSnapshot fs@(SomeHasFS hasFs) encLedger ds st = do
+    createDirectoryIfMissing hasFs True $ snapshotToDirPath ds
+    writeExtLedgerState fs encLedger (snapshotToStatePath ds) $ state st
     writeToDisk (tables st) $ snapshotToDirName ds
 
 takeSnapshot ::
