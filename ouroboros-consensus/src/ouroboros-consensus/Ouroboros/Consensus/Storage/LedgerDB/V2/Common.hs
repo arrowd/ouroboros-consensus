@@ -44,6 +44,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Set (Set)
 import           Data.Word
+import           Debug.Trace (trace)
 import           GHC.Generics
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
@@ -267,7 +268,7 @@ guardUncommitted ::
 guardUncommitted env f = do
   committed <- readTVarIO (foeWasCommitted env)
   if committed
-    then throwIO ForkerUsedAfterCommit
+    then trace "USEDAFTERCOMMIT" (throwIO ForkerUsedAfterCommit)
     else f =<< readTVarIO (foeLedgerSeq env)
 
 -- | Throw an exception (in STM) if the forker has been committed before.
