@@ -255,18 +255,18 @@ library
     Ouroboros.Consensus.Util.Versioned
 
   build-depends:
-    , base                         >=4.14     && <4.19
+    , base                         >=4.14   && <4.19
     , base16-bytestring
-    , bimap                        >=0.4      && <0.6
-    , binary                       >=0.8      && <0.11
-    , bytestring                   >=0.10     && <0.12
+    , bimap                        >=0.4    && <0.6
+    , binary                       >=0.8    && <0.11
+    , bytestring                   >=0.10   && <0.12
     , cardano-binary
     , cardano-crypto-class
     , cardano-prelude
     , cardano-slotting
     , cardano-strict-containers
     , cborg                        ^>=0.2.2
-    , containers                   >=0.5      && <0.7
+    , containers                   >=0.5    && <0.7
     , contra-tracer
     , deepseq
     , filelock
@@ -276,9 +276,9 @@ library
     , measures
     , mtl
     , nothunks                     ^>=0.1.2
-    , ouroboros-network-api        ^>=0.6.2
-    , ouroboros-network-mock       ^>=0.1.0.1
-    , ouroboros-network-protocols  ^>=0.6
+    , ouroboros-network-api
+    , ouroboros-network-mock
+    , ouroboros-network-protocols
     , psqueues                     ^>=0.2.3
     , quiet                        ^>=0.2
     , semialign                    >=1.1

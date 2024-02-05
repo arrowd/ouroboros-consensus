@@ -18,6 +18,31 @@ index-state:
   -- Bump this if you need newer packages from CHaP
   , cardano-haskell-packages 2023-12-15T13:02:57Z
 
+-- NOTE: The LoP integration relies on a draft PR in ouroboros-network.
+-- The precise commit 3dfd01c is obtained from cherry-picking the PR in
+-- question on top of the version of ouroboros-network used by consensus.
+--
+-- https://github.com/IntersectMBO/ouroboros-network/pull/4791
+--
+-- TODO: Remove this once the PR is merged and published on CHaP.
+source-repository-package
+  type: git
+  location: https://github.com/IntersectMBO/ouroboros-network
+  tag: 3dfd01cfd289bc87338b5ce135246aaceb649d86
+  subdir:
+    cardano-ping
+    monoidal-synchronisation
+    network-mux
+    ouroboros-network
+    ouroboros-network-api
+    ouroboros-network-framework
+    ouroboros-network-mock
+    ouroboros-network-protocols
+    ouroboros-network-testing
+    ntp-client
+    cardano-client
+  --sha256: 0x8gzs65z7rf0dxgqcf48a3vavk0hfz5049y4srr0zhwvd66r7bf
+
 packages:
   ouroboros-consensus
   ouroboros-consensus-cardano
