@@ -361,7 +361,7 @@ newForker ::
      , HasLedgerTables l
      , LedgerSupportsProtocol blk
      , NoThunks (l EmptyMK)
-     , GetTip l, Show (l EmptyMK)
+     , GetTip l, Show (l EmptyMK), StandardHash l
      )
   => LedgerDBHandle m l blk
   -> LedgerDBEnv m l blk
@@ -501,7 +501,7 @@ implForkerPush ldbEnv rr env newState = do
     traceWith (foeTracer env) ForkerPushEnd
 
 implForkerCommit ::
-     (MonadSTM m, GetTip l, MonadThrow (STM m), Show (l EmptyMK))
+     (MonadSTM m, GetTip l, MonadThrow (STM m), Show (l EmptyMK), StandardHash l)
   => ForkerEnv m l blk
   -> STM m ()
 implForkerCommit env = do
@@ -510,8 +510,9 @@ implForkerCommit env = do
     statesToClose <- stateTVar
       (foeSwitchVar env)
       (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
-         (olddb', toClose) <- traceShowId $ AS.splitAfterMeasure (traceShowId intersectionSlot) (const True) (traceShowId olddb)
-         newdb <- traceShowId $ AS.join (const $ const True) olddb' $ traceShowId $ AS.mapPreservingMeasure tsrStateRef lseq
+         (olddb', toClose) <- AS.splitAfterMeasure (traceShowId intersectionSlot) (const True) olddb
+         mapM_ (\x -> trace (show $ getTip $ state $ tsrStateRef x) (pure $ Just x)) $ AS.toOldestFirst lseq
+         newdb <- trace (show $ getTip $ current $ LedgerSeq olddb') AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
          pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
       )
 
@@ -599,7 +600,7 @@ newForkerAtTip ::
      ( IOLike m
      , IsLedger l
      , HasLedgerTables l
-     , LedgerSupportsProtocol blk
+     , LedgerSupportsProtocol blk, StandardHash l
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
@@ -628,7 +629,7 @@ newForkerAtFromTip ::
      ( IOLike m
      , IsLedger l
      , HasLedgerTables l
-     , LedgerSupportsProtocol blk
+     , LedgerSupportsProtocol blk, StandardHash l
      )
   => LedgerDBHandle m l blk
   -> ResourceRegistry m
