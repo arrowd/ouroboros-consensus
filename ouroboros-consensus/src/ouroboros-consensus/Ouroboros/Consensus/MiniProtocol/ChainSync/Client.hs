@@ -980,18 +980,16 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
         case (n, decision) of
           (Zero, (Request, mkPipelineDecision')) ->
               SendMsgRequestNext
-                  (handleNext (return ()) kis mkPipelineDecision' Zero)
-                  (do -- When we have to wait, pause the LoP bucket. It will
-                      -- start again at the next message from that peer.
-                    LeakyBucket.pause (lopBucket dynEnv)
-                    return $ handleNext (LeakyBucket.resume (lopBucket dynEnv)) kis mkPipelineDecision' Zero
-                  )
+                  -- When we have to wait, pause the LoP bucket. It will
+                  -- start again at the next message from that peer.
+                  (LeakyBucket.pause (lopBucket dynEnv))
+                  (handleNext kis mkPipelineDecision' Zero)
 
           (_, (Pipeline, mkPipelineDecision')) ->
-            -- TODO: Rebase on
-            -- https://github.com/IntersectMBO/ouroboros-network/pull/4791 and
-            -- handle pausing the LoP bucket when `MsgAwaitReply` is received.
               SendMsgRequestNextPipelined
+                  -- When we have to wait, pause the LoP bucket. It will
+                  -- start again at the next message from that peer.
+                  (LeakyBucket.pause (lopBucket dynEnv))
             $ requestNext
                   kis
                   mkPipelineDecision'
@@ -1004,6 +1002,9 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                   (    Just
                     $ pure
                     $ SendMsgRequestNextPipelined
+                          -- When we have to wait, pause the LoP bucket. It will
+                          -- start again at the next message from that peer.
+                          (LeakyBucket.pause (lopBucket dynEnv))
                     $ requestNext
                           kis
                           mkPipelineDecision'
@@ -1011,22 +1012,24 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                           theirTip
                           candTipBlockNo
                   )
-                  (handleNext (return ()) kis mkPipelineDecision' n')
+                  (handleNext kis mkPipelineDecision' n')
 
           (Succ n', (Collect, mkPipelineDecision')) ->
               CollectResponse
                   Nothing
-                  (handleNext (return ()) kis mkPipelineDecision' n')
+                  (handleNext kis mkPipelineDecision' n')
 
     handleNext ::
-        m () -- ^ an action to run when waking up; never skip breakfast
-     -> KnownIntersectionState blk
+        KnownIntersectionState blk
      -> MkPipelineDecision
      -> Nat n
      -> Consensus (ClientStNext n) blk m
-    handleNext haveBreakfast kis mkPipelineDecision n = ClientStNext {
+    handleNext kis mkPipelineDecision n =
+      -- Unconditionally restart the leaky LoP bucket when receiving any
+      -- message.
+      ClientStNext {
         recvMsgRollForward = \hdr theirTip -> do
-            haveBreakfast
+            LeakyBucket.resume (lopBucket dynEnv)
             traceWith tracer $ TraceDownloadedHeader hdr
             continueWithState kis $
                 rollForward
@@ -1036,7 +1039,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
                     (Their theirTip)
       ,
         recvMsgRollBackward = \intersection theirTip -> do
-            haveBreakfast
+            LeakyBucket.resume (lopBucket dynEnv)
             let intersection' :: Point blk
                 intersection' = castPoint intersection
             traceWith tracer $ TraceRolledBack intersection'
@@ -1057,16 +1060,7 @@ knownIntersectionStateTop cfgEnv dynEnv intEnv =
             (KnownIntersectionState blk)
             (ClientPipelinedStIdle n)
     rollForward mkPipelineDecision n hdr theirTip =
-        Stateful $ \kis -> traceException $
-
-          -- Pause the LoP bucket if we are _not_ NewBestHeader-Starved, that is
-          -- if we get a header that is better (in term of block number) than
-          -- any other seen before for this peer.
-          LeakyBucket.withPauseIf
-            (pure $ blockNo hdr > kBestBlockNo kis)
-            (lopBucket dynEnv)
-            $ do
-
+        Stateful $ \kis -> traceException $ do
             arrival     <- recordHeaderArrival hdr
             arrivalTime <- getMonotonicTime
 
