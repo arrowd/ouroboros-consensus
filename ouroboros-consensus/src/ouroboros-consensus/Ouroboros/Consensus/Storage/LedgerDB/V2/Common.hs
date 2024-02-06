@@ -509,7 +509,7 @@ implForkerCommit env = do
     let intersectionSlot = getTipSlot $ state $ AS.anchor lseq
     statesToClose <- stateTVar
       (foeSwitchVar env)
-      (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
+      (\(LedgerSeq olddb) -> fromMaybe (theImpossible olddb lseq intersectionSlot) $ do
          (olddb', toClose) <- AS.splitAfterMeasure intersectionSlot (const True) olddb
          newdb <- AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
          pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
@@ -532,9 +532,14 @@ implForkerCommit env = do
     writeTVar (foeWasCommitted env) True
 
   where
-    theImpossible =
+    theImpossible o l i =
       error $ unwords [ "Critical invariant violation:"
                       , "Forker chain does no longer intersect with selected chain."
+                      , show (getTip $ state $ AS.anchor l)
+                      , (\case
+                            Nothing -> "unsplittable"
+                            Just (a, _) -> show (getTip $ state $ AS.headAnchor a)
+                        ) $ AS.splitAfterMeasure i (const True) o
                       ]
 
 {-------------------------------------------------------------------------------
