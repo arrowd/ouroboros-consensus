@@ -537,7 +537,7 @@ implForkerCommit env = do
                       , "Forker chain does no longer intersect with selected chain."
                       , show (getTip $ state $ AS.anchor l)
                       , (\case
-                            Nothing -> "unsplittable: " <> unlines (map (show . getTip . state) $ AS.toOldestFirst o )
+                            Nothing -> "unsplittable: " <> "anchor: " <> show (getTip $ state $ AS.anchor o) <> "others: " <> unlines (map (show . getTip . state) $ AS.toOldestFirst o )
                             Just (a, _) -> show (getTip $ state $ AS.headAnchor a)
                         ) $ AS.splitAfterMeasure i (const True) o
                       ]
