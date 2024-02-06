@@ -370,7 +370,7 @@ newForker ::
   -> StateRef m l
   -> m (Forker m l blk)
 newForker h ldbEnv why rr st = do
-    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
+    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, r + 1)
     let tr = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
     traceWith tr (ForkerOpen why)
     lseqVar   <- newTVarIO . ForkerLedgerSeq . AS.Empty $ st
