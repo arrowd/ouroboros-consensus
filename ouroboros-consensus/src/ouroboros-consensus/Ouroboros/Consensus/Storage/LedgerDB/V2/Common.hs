@@ -510,9 +510,8 @@ implForkerCommit env = do
     statesToClose <- stateTVar
       (foeSwitchVar env)
       (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
-         (olddb', toClose) <- AS.splitAfterMeasure (trace (unlines . map (show . getTipSlot . state . tsrStateRef) $ AS.toOldestFirst lseq) $ trace (unlines . map (show . getTipSlot . state) $ AS.toOldestFirst olddb) $ traceShowId intersectionSlot) (const True) olddb
-         mapM_ (\x -> trace (show $ getTip $ state $ tsrStateRef x) (pure $ Just x)) $ AS.toOldestFirst lseq
-         newdb <- trace (show $ getTip $ current $ LedgerSeq olddb') AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
+         (olddb', toClose) <- AS.splitAfterMeasure intersectionSlot (const True) olddb
+         newdb <- AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
          pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
       )
 
@@ -533,7 +532,7 @@ implForkerCommit env = do
     writeTVar (foeWasCommitted env) True
 
   where
-    theImpossible = trace "BLAH" $
+    theImpossible =
       error $ unwords [ "Critical invariant violation:"
                       , "Forker chain does no longer intersect with selected chain."
                       ]
