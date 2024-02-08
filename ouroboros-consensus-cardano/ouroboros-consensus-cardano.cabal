@@ -534,6 +534,8 @@ library unstable-cardano-tools
     , transformers
     , transformers-except
 
+    , time
+
 executable db-analyser
   hs-source-dirs: app
   main-is:        db-analyser.hs
