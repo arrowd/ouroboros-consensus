@@ -13,6 +13,7 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- | The data structure that holds the cached ledger states.
 module Ouroboros.Consensus.Storage.LedgerDB.V2.LedgerSeq (
@@ -69,14 +70,14 @@ import           Prelude hiding (read)
   LedgerTablesHandles
 -------------------------------------------------------------------------------}
 
-data LedgerTablesHandle m l = IOLike m => LedgerTablesHandle {
-    close       :: !(m ())
-  , duplicate   :: !(m (LedgerTablesHandle m l))
-  , read        :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
-  , readRange   :: !((Key l, Key l) -> m (LedgerTables l ValuesMK))
-  , write       :: !(LedgerTables l DiffMK -> m ())
-  , writeToDisk :: !(String -> m ())
-  , tablesSize  :: !(m (Maybe Int))
+data LedgerTablesHandle m l = LedgerTablesHandle {
+    close       :: m ()
+  , duplicate   :: m (LedgerTablesHandle m l)
+  , read        :: LedgerTables l KeysMK -> m (LedgerTables l ValuesMK)
+  , readRange   :: (Key l, Key l) -> m (LedgerTables l ValuesMK)
+  , write       :: LedgerTables l DiffMK -> m ()
+  , writeToDisk :: String -> m ()
+  , tablesSize  :: m (Maybe Int)
   }
   deriving NoThunks via OnlyCheckWhnfNamed "LedgerTablesHandle" (LedgerTablesHandle m l)
 
@@ -100,9 +101,9 @@ data LedgerTablesHandle m l = IOLike m => LedgerTablesHandle {
 -- values, and a @LedgerTables blk ValuesMK@ next to it, that will live its
 -- entire lifetime as @LedgerTables@ of the @HardForkBlock@.
 data StateRef m l = StateRef {
-    state       :: l EmptyMK
-  , resourceKey :: ResourceKey m
-  , tables      :: LedgerTablesHandle m l
+    state       :: !(l EmptyMK)
+  , resourceKey :: !(ResourceKey m)
+  , tables      :: !(LedgerTablesHandle m l)
   } deriving (Generic)
 
 deriving instance (IOLike m, NoThunks (l EmptyMK)) => NoThunks (StateRef m l)
@@ -145,7 +146,9 @@ empty ::
   -> LedgerTables l ValuesMK
   -> (LedgerTables l ValuesMK -> m (ResourceKey m, LedgerTablesHandle m l))
   -> m (LedgerSeq m l)
-empty st tbs new = LedgerSeq . AS.Empty . uncurry (StateRef st) <$> new tbs
+empty st tbs new = do
+  (r, h) <- new tbs
+  pure $ LedgerSeq $ AS.Empty $ StateRef st r h
 
 -- | Creates an empty @LedgerSeq@
 empty' ::

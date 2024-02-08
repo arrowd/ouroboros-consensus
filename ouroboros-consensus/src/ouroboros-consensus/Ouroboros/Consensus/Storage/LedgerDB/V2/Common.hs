@@ -16,6 +16,7 @@
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.Common (
     -- * LedgerDBEnv
@@ -44,7 +45,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import           Data.Set (Set)
 import           Data.Word
-import           Debug.Trace (trace, traceShowId)
+import           Debug.Trace (trace)
 import           GHC.Generics
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Config
@@ -228,21 +229,21 @@ forkerCurrentHandle = AS.headAnchor . forkerGetLedgerSeq
 forkerCurrent :: GetTip l => ForkerLedgerSeq m l -> l EmptyMK
 forkerCurrent = state . forkerCurrentHandle
 
--- | Same as 'prune'.
-forkerPrune ::
-     GetTip l
-  => SecurityParam
-  -> ForkerLedgerSeq m l
-  -> ForkerLedgerSeq m l
-forkerPrune (SecurityParam k) (ForkerLedgerSeq ldb) =
-    ForkerLedgerSeq ldb'
-  where
-    nvol = AS.length ldb
+-- -- | Same as 'prune'.
+-- forkerPrune ::
+--      GetTip l
+--   => SecurityParam
+--   -> ForkerLedgerSeq m l
+--   -> ForkerLedgerSeq m l
+-- forkerPrune (SecurityParam k) (ForkerLedgerSeq ldb) =
+--     ForkerLedgerSeq ldb'
+--   where
+--     nvol = AS.length ldb
 
-    ldb' =
-      if toEnum nvol <= k
-      then ldb
-      else snd $ AS.splitAt (nvol - fromEnum k) ldb
+--     ldb' =
+--       if toEnum nvol <= k
+--       then ldb
+--       else snd $ AS.splitAt (nvol - fromEnum k) ldb
 
 -- | Same as 'extend'.
 forkerExtend ::
@@ -307,7 +308,7 @@ data ForkerEnv m l blk = ForkerEnv {
 
 closeForkerEnv :: IOLike m => ForkerEnv m l blk -> m ()
 closeForkerEnv e = do
-  mapM_ release =<< readTVarIO (foeResourcesToRelease e)
+  -- mapM_ release =<< readTVarIO (foeResourcesToRelease e)
   mapM_ unsafeRemoveResource =<< readTVarIO (foeResourcesToRemove e)
   wasCommitted <- readTVarIO (foeWasCommitted e)
   traceWith (foeTracer e) $
@@ -483,14 +484,13 @@ implForkerPush ldbEnv rr env newState = do
     let (st, tbs) = (forgetLedgerTables newState, ltprj newState)
 
     -- allocate in the given outer registry
-    (kOuter, newtbs) <- allocate rr (const $ duplicate (tables $ forkerCurrentHandle lseq)) close
+    (!kOuter, !newtbs) <- allocate rr (const $ duplicate (tables $ forkerCurrentHandle lseq)) close
     -- allocate in the ldb registry too
-    (kInner, _) <- allocate (ldbRegistry ldbEnv) (const $ pure newtbs) close
+    (!kInner, _) <- allocate (ldbRegistry ldbEnv) (const $ pure newtbs) close
 
     write newtbs tbs
 
-    let lseq' = forkerPrune (foeSecurityParam env)
-              $ forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
+    let lseq' = forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
 
     atomically $ do
       writeTVar (foeLedgerSeq env) lseq'

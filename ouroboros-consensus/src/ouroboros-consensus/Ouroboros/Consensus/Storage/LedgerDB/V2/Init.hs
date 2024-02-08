@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.Init (mkInitDb) where
 
@@ -60,7 +61,11 @@ mkInitDb :: forall m blk.
 mkInitDb args flavArgs getBlock =
   InitDB {
       initFromGenesis = emptyF =<< lgrGenesis
-    , initFromSnapshot = loadSnapshot (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS
+    , initFromSnapshot = \ds -> do
+        traceMarkerIO "Loading snapshot"
+        s <- loadSnapshot (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS ds
+        traceMarkerIO "Loaded snapshot"
+        pure s
     , closeDb = closeLedgerSeq
     , initReapplyBlock = reapplyThenPush lgrRegistry
     , currentTip = ledgerState . current
@@ -99,13 +104,14 @@ mkInitDb args flavArgs getBlock =
 
    emptyF :: ExtLedgerState blk ValuesMK
           -> m (LedgerSeq' m blk)
-   emptyF st =
-     empty' st $ \tbs ->
+   emptyF st = do
+     empty' st $ \tbs -> do
+       !h <- case bss of
+            InMemoryHandleArgs -> InMemory.newInMemoryLedgerTablesHandle lgrHasFS tbs
+            LSMHandleArgs      -> LSM.newLSMLedgerTablesHandle tbs
        allocate
          lgrRegistry
-         (\_ -> case bss of
-                  InMemoryHandleArgs -> InMemory.newInMemoryLedgerTablesHandle lgrHasFS tbs
-                  LSMHandleArgs      -> LSM.newLSMLedgerTablesHandle tbs)
+         (const $ pure h )
          close
 
    loadSnapshot :: CodecConfig blk

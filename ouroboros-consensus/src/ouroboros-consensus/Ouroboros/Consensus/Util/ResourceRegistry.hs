@@ -11,6 +11,7 @@
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ouroboros.Consensus.Util.ResourceRegistry (
     RegistryClosedException (..)
@@ -989,7 +990,7 @@ allocateEither rr alloc free = do
       Left closed ->
         throwRegistryClosed rr context closed
       Right key -> mask_ $ do
-        ma <- alloc key
+        !ma <- alloc key
         case ma of
           Left  e -> return $ Left e
           Right a -> do

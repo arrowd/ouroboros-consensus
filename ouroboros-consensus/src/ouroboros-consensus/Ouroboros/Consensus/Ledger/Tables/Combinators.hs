@@ -69,6 +69,7 @@ import           Data.Kind
 import           Data.SOP.Functors
 import           Ouroboros.Consensus.Ledger.Tables.Basics
 import           Ouroboros.Consensus.Util ((...:), (..:), (.:))
+import Control.Monad ((<$!>))
 
 {-------------------------------------------------------------------------------
   Common constraints
@@ -86,7 +87,7 @@ ltmap ::
   => (forall k v. (Ord k, Eq v) => mk1 k v -> mk2 k v)
   -> LedgerTables l mk1
   -> LedgerTables l mk2
-ltmap f (LedgerTables x) = LedgerTables $ f x
+ltmap f (LedgerTables x) = LedgerTables $! f x
 
 {-------------------------------------------------------------------------------
   Traversable
@@ -94,18 +95,18 @@ ltmap f (LedgerTables x) = LedgerTables $ f x
 
 -- | Like 'btraverse', but for ledger tables.
 lttraverse ::
-     (Applicative f, LedgerTableConstraints l)
+     (LedgerTableConstraints l, Monad f)
   => (forall k v. (Ord k, Eq v) => mk1 k v -> f (mk2 k v))
   -> LedgerTables l mk1
   -> f (LedgerTables l mk2)
-lttraverse f (LedgerTables x) = LedgerTables <$> f x
+lttraverse f (LedgerTables x) = LedgerTables <$!> f x
 
 --
 -- Utility functions
 --
 
 ltsequence ::
-     (Applicative f, LedgerTableConstraints l)
+     (Monad f, LedgerTableConstraints l)
   => LedgerTables l (f :..: mk)
   -> f (LedgerTables l mk)
 ltsequence = lttraverse unComp2
@@ -179,7 +180,7 @@ ltliftA4 f x x' x'' x''' =
 -------------------------------------------------------------------------------}
 
 ltzipWith3A ::
-     (Applicative f, LedgerTableConstraints l)
+     (Monad f, LedgerTableConstraints l)
   => (forall k v. (Ord k, Eq v) => mk1 k v -> mk2 k v -> mk3 k v -> f (mk4 k v))
   -> LedgerTables l mk1
   -> LedgerTables l mk2

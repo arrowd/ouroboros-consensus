@@ -16,6 +16,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.InMemory (
     -- * LedgerTablesHandle
@@ -52,13 +53,14 @@ import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Prelude hiding (read)
 import           System.FS.API
 import           System.FS.API.Types
+-- import Debug.Trace (traceShow)
 
 {-------------------------------------------------------------------------------
   InMemory implementation of LedgerTablesHandles
 -------------------------------------------------------------------------------}
 
 data LedgerTablesHandleState l =
-    LedgerTablesHandleOpen (LedgerTables l ValuesMK)
+    LedgerTablesHandleOpen !(LedgerTables l ValuesMK)
   | LedgerTablesHandleClosed
   deriving Generic
 
@@ -80,10 +82,12 @@ newInMemoryLedgerTablesHandle ::
   -> LedgerTables l ValuesMK
   -> m (LedgerTablesHandle m l)
 newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
-  ioref <- newTVarIO (LedgerTablesHandleOpen l)
+  !ioref <- newTVarIO (LedgerTablesHandleOpen l)
   pure LedgerTablesHandle {
       close = atomically $ modifyTVar ioref (const LedgerTablesHandleClosed)
-    , duplicate = doDuplicate ioref
+    , duplicate = do
+        !x <- doDuplicate ioref
+        pure x
     , read = \keys -> do
         hs <- readTVarIO ioref
         guardClosed hs (\st -> pure $ ltliftA2 rawRestrictValues st keys)
@@ -94,7 +98,7 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
     , write = \diffs -> do
         atomically
         $ modifyTVar ioref
-        (`guardClosed` (\st -> LedgerTablesHandleOpen (ltliftA2 rawApplyDiffs st diffs)))
+        (`guardClosed` (\st -> LedgerTablesHandleOpen $! ltliftA2 rawApplyDiffs st diffs))
     , writeToDisk = \snapshotName -> do
         createDirectoryIfMissing hasFS True $ mkFsPath [snapshotName, "tables"]
         h <- readTVarIO ioref
@@ -172,7 +176,8 @@ loadSnapshot rr ccfg fs@(SomeHasFS hasFS) ds = do
   eExtLedgerSt <- runExceptT $ readExtLedgerState fs (decodeExtLedgerState' ccfg) decode (snapshotToStatePath ds)
   case eExtLedgerSt of
     Left err -> pure (Left $ InitFailureRead err)
-    Right extLedgerSt -> do
+    Right !extLedgerSt -> do
+      traceMarkerIO "Loaded state"
       case pointToWithOriginRealPoint (castPoint (getTip extLedgerSt)) of
         Origin        -> pure (Left InitFailureGenesis)
         NotOrigin pt -> do
@@ -183,6 +188,6 @@ loadSnapshot rr ccfg fs@(SomeHasFS hasFS) ds = do
             case CBOR.deserialiseFromBytes valuesMKDecoder bs of
               Left  err        -> error $ show err
               Right (extra, x) -> do
-                unless (BSL.null extra) $ error "Trailing bytes in snapshot"
-                pure x
+                  unless (BSL.null extra) $ error "Trailing bytes in snapshot"
+                  pure x
           Right . (,pt) <$> empty extLedgerSt values (\tbs -> allocate rr (const $ newInMemoryLedgerTablesHandle fs tbs) close)
