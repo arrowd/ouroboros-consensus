@@ -116,6 +116,7 @@ genChains genNumForks = do
     gtHonestAsc = asc,
     gtSecurityParam = SecurityParam (fromIntegral kcp),
     gtGenesisWindow = GenesisWindow (fromIntegral scg),
+    gtForecastRange = ForecastRange (fromIntegral scg), -- REVIEW: Do we want to generate those randomly?
     gtDelay = delta,
     gtBlockTree = foldl' (flip BT.addBranch') (BT.mkTrunk goodChain) $ zipWith (genAdversarialFragment goodBlocks) [1..] alternativeChainSchemas
     }

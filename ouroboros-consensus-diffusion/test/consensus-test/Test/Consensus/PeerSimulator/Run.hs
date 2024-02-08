@@ -260,7 +260,7 @@ runPointSchedule ::
   PointSchedule ->
   Tracer m String ->
   m StateView
-runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree} pointSchedule tracer0 =
+runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtForecastRange, gtBlockTree} pointSchedule tracer0 =
   withRegistry $ \registry -> do
     stateViewTracers <- defaultStateViewTracers
     resources <- makePeerSimulatorResources tracer gtBlockTree (pointSchedulePeers pointSchedule)
@@ -289,7 +289,7 @@ runPointSchedule schedulerConfig GenesisTest {gtSecurityParam = k, gtBlockTree} 
     runScheduler tracer stateTracer pointSchedule (psrPeers resources)
     snapshotStateView stateViewTracers chainDb
   where
-    config = defaultCfg k
+    config = defaultCfg k gtForecastRange
 
     tracer = if scTrace schedulerConfig then tracer0 else nullTracer
 

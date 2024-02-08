@@ -27,6 +27,7 @@
 module Test.Consensus.PointSchedule (
     AdvertisedPoints (..)
   , BlockPoint (..)
+  , ForecastRange (..)
   , GenesisTest (..)
   , GenesisWindow (..)
   , HeaderPoint (..)
@@ -464,11 +465,15 @@ uniformPoints BlockTree {btTrunk, btBranches} g = do
 newtype GenesisWindow = GenesisWindow { unGenesisWindow :: Word64 }
   deriving (Show)
 
+newtype ForecastRange = ForecastRange { unForecastRange :: Word64 }
+  deriving (Show)
+
 -- | All the data used by point schedule tests.
 data GenesisTest = GenesisTest {
   gtHonestAsc     :: Asc,
   gtSecurityParam :: SecurityParam,
   gtGenesisWindow :: GenesisWindow,
+  gtForecastRange :: ForecastRange, -- REVIEW: Do we want to allow infinite forecast ranges?
   gtDelay         :: Delta,
   gtBlockTree     :: BlockTree TestBlock
   }
