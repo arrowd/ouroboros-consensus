@@ -87,7 +87,7 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
     , read = \keys -> do
         hs <- readTVarIO ioref
         guardClosed hs (\st -> pure $ ltliftA2 rawRestrictValues st keys)
-    , readRange = undefined -- TODO (js) -- \(f, t) -> do
+    , readRange = \(_f, _t) -> undefined
         -- hs <- readTVarIO ioref
         -- guardClosed hs (\(LedgerTables (ValuesMK m)) ->
         --                   pure . LedgerTables . ValuesMK . fst . Map.split t . snd . Map.split f $ m)
@@ -96,7 +96,7 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
         $ modifyTVar ioref
         (`guardClosed` (\st -> LedgerTablesHandleOpen (ltliftA2 rawApplyDiffs st diffs)))
     , writeToDisk = \snapshotName -> do
-        createDirectory hasFS $ mkFsPath [snapshotName]
+        createDirectoryIfMissing hasFS True $ mkFsPath [snapshotName, "tables"]
         h <- readTVarIO ioref
         guardClosed h $
           \values ->
@@ -129,8 +129,9 @@ writeSnapshot ::
   -> DiskSnapshot
   -> StateRef m (ExtLedgerState blk)
   -> m ()
-writeSnapshot fs encLedger ds st = do
-    writeExtLedgerState fs encLedger (snapshotToDirPath ds) $ state st
+writeSnapshot fs@(SomeHasFS hasFs) encLedger ds st = do
+    createDirectoryIfMissing hasFs True $ snapshotToDirPath ds
+    writeExtLedgerState fs encLedger (snapshotToStatePath ds) $ state st
     writeToDisk (tables st) $ snapshotToDirName ds
 
 takeSnapshot ::
@@ -172,6 +173,7 @@ loadSnapshot rr ccfg fs@(SomeHasFS hasFS) ds = do
   case eExtLedgerSt of
     Left err -> pure (Left $ InitFailureRead err)
     Right extLedgerSt -> do
+      traceMarkerIO "Loaded state"
       case pointToWithOriginRealPoint (castPoint (getTip extLedgerSt)) of
         Origin        -> pure (Left InitFailureGenesis)
         NotOrigin pt -> do

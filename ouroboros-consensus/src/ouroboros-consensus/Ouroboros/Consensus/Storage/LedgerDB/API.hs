@@ -336,7 +336,7 @@ data Forker m l blk = Forker {
 -- | An identifier for a 'Forker'. See 'ldbForkers'.
 newtype ForkerKey = ForkerKey Word16
   deriving stock (Show, Eq, Ord)
-  deriving newtype (Enum, NoThunks)
+  deriving newtype (Enum, NoThunks, Num)
 
 type instance HeaderHash (Forker m l blk) = HeaderHash l
 

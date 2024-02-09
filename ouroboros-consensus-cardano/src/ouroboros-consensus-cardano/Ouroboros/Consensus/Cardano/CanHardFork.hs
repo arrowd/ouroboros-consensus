@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds         #-}
 {-# LANGUAGE DataKinds               #-}
 {-# LANGUAGE DeriveAnyClass          #-}
@@ -31,6 +32,8 @@ module Ouroboros.Consensus.Cardano.CanHardFork (
   ) where
 
 
+import Ouroboros.Consensus.Util.IOLike
+import System.IO.Unsafe
 import qualified Cardano.Chain.Common as CC
 import qualified Cardano.Chain.Genesis as CC.Genesis
 import qualified Cardano.Chain.Update as CC.Update
@@ -63,7 +66,6 @@ import qualified Data.SOP.Tails as Tails
 import           Data.Void (absurd)
 import           Data.Word
 import           GHC.Generics (Generic)
-import           NoThunks.Class (NoThunks)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.Byron.Ledger
 import qualified Ouroboros.Consensus.Byron.Ledger.Inspect as Byron.Inspect
@@ -421,6 +423,8 @@ translateLedgerStateByronToShelleyWrapper ::
 translateLedgerStateByronToShelleyWrapper =
       RequireBoth
     $ \_ (WrapLedgerConfig cfgShelley) ->
+        let !_ = unsafePerformIO $ traceMarkerIO "Byron to Shelley"
+        in
         TranslateLedgerState {
             translateLedgerStateWith = \epochNo ledgerByron ->
                 forgetTrackingValues

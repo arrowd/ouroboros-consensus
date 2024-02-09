@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeFamilies             #-}
 {-# LANGUAGE TypeOperators            #-}
 {-# LANGUAGE UndecidableInstances     #-}
+{-# LANGUAGE BangPatterns #-}
 
 -- | This module defines the 'LedgerTables', a portion of the Ledger notion of a
 -- /ledger state/ (not to confuse with our
@@ -354,8 +355,11 @@ valuesMKDecoder = do
      -> CodecMK k v
      -> CBOR.Decoder s (ValuesMK k v)
   go len (CodecMK _encK _encV decK decV) =
-        ValuesMK . Map.fromList
-    <$> replicateM len ((,) <$> decK <*> decV)
+    ValuesMK . Map.fromList
+      <$> replicateM len (do
+                               !k <- decK
+                               !v <- decV
+                               pure (k, v))
 
 {-------------------------------------------------------------------------------
   Special classes of ledger states

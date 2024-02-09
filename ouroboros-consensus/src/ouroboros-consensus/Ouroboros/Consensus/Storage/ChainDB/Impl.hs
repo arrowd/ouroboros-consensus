@@ -132,9 +132,9 @@ openDBInternal args launchBgTasks = runWithTempRegistry $ do
         OpenedImmutableDB immutableDbTipPoint immutableDbTipChunk
 
     lift $ traceWith tracer $ TraceOpenEvent StartedOpeningVolatileDB
-    volatileDB <- VolatileDB.openDB argsVolatileDb $ innerOpenCont VolatileDB.closeDB
+    (volatileDB, maxSlot) <- VolatileDB.openDB argsVolatileDb $ innerOpenCont (VolatileDB.closeDB . fst)
     (chainDB, testing, env) <- lift $ do
-      traceWith tracer $ TraceOpenEvent OpenedVolatileDB
+      traceWith tracer $ TraceOpenEvent (OpenedVolatileDB maxSlot)
       traceWith tracer $ TraceOpenEvent StartedOpeningLgrDB
       (lgrDB, replayed) <- LedgerDB.openDB
                             argsLgrDb

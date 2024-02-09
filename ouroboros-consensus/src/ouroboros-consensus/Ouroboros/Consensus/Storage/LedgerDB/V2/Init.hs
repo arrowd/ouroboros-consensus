@@ -60,7 +60,11 @@ mkInitDb :: forall m blk.
 mkInitDb args flavArgs getBlock =
   InitDB {
       initFromGenesis = emptyF =<< lgrGenesis
-    , initFromSnapshot = loadSnapshot (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS
+    , initFromSnapshot = \ds -> do
+        traceMarkerIO "Loading snapshot"
+        s <- loadSnapshot (configCodec . getExtLedgerCfg . ledgerDbCfg $ lgrConfig) lgrHasFS ds
+        traceMarkerIO "Loaded snapshot"
+        pure s
     , closeDb = closeLedgerSeq
     , initReapplyBlock = reapplyThenPush lgrRegistry
     , currentTip = ledgerState . current

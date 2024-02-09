@@ -227,22 +227,6 @@ forkerCurrentHandle = AS.headAnchor . forkerGetLedgerSeq
 forkerCurrent :: GetTip l => ForkerLedgerSeq m l -> l EmptyMK
 forkerCurrent = state . forkerCurrentHandle
 
--- | Same as 'prune'.
-forkerPrune ::
-     GetTip l
-  => SecurityParam
-  -> ForkerLedgerSeq m l
-  -> ForkerLedgerSeq m l
-forkerPrune (SecurityParam k) (ForkerLedgerSeq ldb) =
-    ForkerLedgerSeq ldb'
-  where
-    nvol = AS.length ldb
-
-    ldb' =
-      if toEnum nvol <= k
-      then ldb
-      else snd $ AS.splitAt (nvol - fromEnum k) ldb
-
 -- | Same as 'extend'.
 forkerExtend ::
      GetTip l
@@ -306,7 +290,7 @@ data ForkerEnv m l blk = ForkerEnv {
 
 closeForkerEnv :: IOLike m => ForkerEnv m l blk -> m ()
 closeForkerEnv e = do
-  mapM_ release =<< readTVarIO (foeResourcesToRelease e)
+  -- mapM_ release =<< readTVarIO (foeResourcesToRelease e)
   mapM_ unsafeRemoveResource =<< readTVarIO (foeResourcesToRemove e)
   wasCommitted <- readTVarIO (foeWasCommitted e)
   traceWith (foeTracer e) $
@@ -368,16 +352,18 @@ newForker ::
   -> StateRef m l
   -> m (Forker m l blk)
 newForker h ldbEnv rr st = do
+    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, r + 1)
+    let tr = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
+    traceWith tr ForkerOpen
     lseqVar   <- newTVarIO . ForkerLedgerSeq . AS.Empty $ st
     toRemove  <- newTVarIO []
     toRelease <- newTVarIO []
     committed <- newTVarIO False
-    forkerKey <- atomically $ stateTVar (ldbNextForkerKey ldbEnv) $ \r -> (r, succ r)
     let forkerEnv = ForkerEnv {
         foeLedgerSeq          = lseqVar
       , foeSwitchVar          = ldbSeq ldbEnv
       , foeSecurityParam      = ledgerDbCfgSecParam $ ldbCfg ldbEnv
-      , foeTracer             = LedgerDBForkerEvent . TraceForkerEventWithKey forkerKey >$< ldbTracer ldbEnv
+      , foeTracer             = tr
       , foeResourcesToRemove  = toRemove
       , foeResourcesToRelease = toRelease
       , foeWasCommitted       = committed
@@ -485,8 +471,7 @@ implForkerPush ldbEnv rr env newState = do
 
     write newtbs tbs
 
-    let lseq' = forkerPrune (foeSecurityParam env)
-              $ forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
+    let lseq' = forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
 
     atomically $ do
       writeTVar (foeLedgerSeq env) lseq'

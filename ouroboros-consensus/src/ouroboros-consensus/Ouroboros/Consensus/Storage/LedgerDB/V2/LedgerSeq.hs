@@ -69,7 +69,7 @@ import           Prelude hiding (read)
   LedgerTablesHandles
 -------------------------------------------------------------------------------}
 
-data LedgerTablesHandle m l = IOLike m => LedgerTablesHandle {
+data LedgerTablesHandle m l = LedgerTablesHandle {
     close       :: !(m ())
   , duplicate   :: !(m (LedgerTablesHandle m l))
   , read        :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
@@ -100,9 +100,9 @@ data LedgerTablesHandle m l = IOLike m => LedgerTablesHandle {
 -- values, and a @LedgerTables blk ValuesMK@ next to it, that will live its
 -- entire lifetime as @LedgerTables@ of the @HardForkBlock@.
 data StateRef m l = StateRef {
-    state       :: l EmptyMK
-  , resourceKey :: ResourceKey m
-  , tables      :: LedgerTablesHandle m l
+    state       :: !(l EmptyMK)
+  , resourceKey :: !(ResourceKey m)
+  , tables      :: !(LedgerTablesHandle m l)
   } deriving (Generic)
 
 deriving instance (IOLike m, NoThunks (l EmptyMK)) => NoThunks (StateRef m l)

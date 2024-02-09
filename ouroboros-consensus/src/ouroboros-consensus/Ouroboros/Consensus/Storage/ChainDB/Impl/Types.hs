@@ -102,6 +102,7 @@ import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Ouroboros.Consensus.Util.STM (WithFingerprint)
 import           Ouroboros.Consensus.Util.TentativeState (TentativeState (..))
 import           Ouroboros.Network.AnchoredFragment (AnchoredFragment)
+import Ouroboros.Network.Block (MaxSlotNo)
 
 -- | All the serialisation related constraints needed by the ChainDB.
 class ( ImmutableDbSerialiseConstraints blk
@@ -551,7 +552,7 @@ data TraceOpenEvent blk =
   | StartedOpeningVolatileDB
 
     -- | The VolatileDB was opened.
-  | OpenedVolatileDB
+  | OpenedVolatileDB MaxSlotNo
 
     -- | The LedgerDB started opening.
   | StartedOpeningLgrDB
