@@ -597,10 +597,10 @@ fixupModelState model =
         GSM.WhetherCandidateIsBetter False == candidateOverSelection sel cand
 
     fortiethBirthday = SI.addTime ageLimit (onset sel)
-    tooOld           = fortiethBirthday <= clk
+    tooOld           = fortiethBirthday < clk   -- NB 'boringDur' prevents equivalence
 
     release      timestamp = SI.addTime thrashLimit timestamp
-    notThrashing timestamp = release timestamp <= clk
+    notThrashing timestamp = release timestamp < clk   -- NB 'boringDur' prevents equivalence
 
     -- The /last/ time the node instantaneously visited OnlyBootstrap during
     -- the 'TimePasses' command.
@@ -628,8 +628,11 @@ ageLimit = 10   -- seconds
 thrashLimit :: Num a => a
 thrashLimit = 10   -- seconds
 
--- | Checks that an 'TimePasses' command does not end exactly when a timeout
+-- | Checks that a 'TimePasses' command does not end exactly when a timeout
 -- could fire
+--
+-- This insulates the test from race conditions that are innocuous in the real
+-- world.
 boringDur :: Model r -> Int -> Bool
 boringDur model dur =
     boringSelection && boringState
