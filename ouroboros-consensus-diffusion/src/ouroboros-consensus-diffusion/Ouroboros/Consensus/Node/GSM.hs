@@ -76,7 +76,7 @@ data CandidateVersusSelection =
     -- ^ Whether the candidate is better than the selection
   deriving (Eq, Show)
 
-data GsmView m blk upstreamPeer selection candidate = GsmView {
+data GsmView m upstreamPeer selection candidate = GsmView {
     antiThunderingHerd        :: StdGen
     -- ^ An initial seed used to randomly increase 'minCaughtUpDuration' by up
     -- to 15% every transition from OnlyBootstrap to CaughtUp, in order to
@@ -185,7 +185,7 @@ realGsmEntryPoints :: forall m blk upstreamPeer selection candidate.
      , SI.MonadTimer m
      , Eq upstreamPeer
      )
-  => GsmView m blk upstreamPeer selection candidate
+  => GsmView m upstreamPeer selection candidate
   -> GsmEntryPoints m
 realGsmEntryPoints gsmView = GsmEntryPoints {
     enterCaughtUp
