@@ -64,17 +64,6 @@ data Command r =
     --
     -- NOTE Harmless to assume it only advances by @'B' 1@ at a time.
   |
-    Idle Int
-    -- ^ tenths of a second
-    --
-    -- INVARIANT positive
-    --
-    -- INVARIANT does not end /exactly/ on an interesting time point; see
-    -- 'boringDur'.
-    --
-    -- NOTE The generator does not yield consecutive 'Idle' commands, though
-    -- shrinking might.
-  |
     ModifyCandidate UpstreamPeer B
     -- ^ INVARIANT existing peer
     --
@@ -91,6 +80,17 @@ data Command r =
   |
     StartIdling UpstreamPeer
     -- ^ INVARIANT existing peer, not idling
+  |
+    TimePasses Int
+    -- ^ tenths of a second
+    --
+    -- INVARIANT positive
+    --
+    -- INVARIANT does not end /exactly/ on an interesting time point; see
+    -- 'boringDur'.
+    --
+    -- NOTE The generator does not yield consecutive 'TimePasses' commands,
+    -- though shrinking might.
   deriving stock    (Generic1, Show)
   deriving anyclass (QSM.CommandNames, QSM.Foldable, QSM.Functor, QSM.Traversable)
 
@@ -120,9 +120,6 @@ semantics vars = \case
             Selection b s <- readTVar varSelection
             writeTVar varSelection $! Selection (b + 1) (s + sdel)
         pure Unit
-    Idle dur -> do
-        SI.threadDelay (0.1 * fromIntegral dur)
-        pure Unit
     ModifyCandidate peer bdel -> do
         atomically $ do
 
@@ -148,6 +145,9 @@ semantics vars = \case
     StartIdling peer -> do
         atomically $ modifyTVar varIdlers $ Set.insert peer
         pure Unit
+    TimePasses dur -> do
+        SI.threadDelay (0.1 * fromIntegral dur)
+        pure Unit
   where
     Vars varSelection varCandidates varIdlers varJudgment varMarker = vars
 
@@ -170,7 +170,7 @@ data Model r = Model {
   ,
     mIdlers :: Set.Set UpstreamPeer
   ,
-    mPrev :: WhetherPrevIdle
+    mPrev :: WhetherPrevTimePasses
   ,
     mSelection :: Selection
   ,
@@ -187,7 +187,7 @@ initModel j = Model {
   ,
     mIdlers = Set.empty
   ,
-    mPrev = WhetherPrevIdle True
+    mPrev = WhetherPrevTimePasses True
   ,
     mSelection = Selection 0 s
   ,
@@ -206,10 +206,6 @@ precondition model = \case
         selectionIsBehind model
     Disconnect peer -> QSM.Boolean $
         peer `Map.member` cands
-    Idle dur -> QSM.Boolean $
-        (0 < dur)
-     &&
-        (boringDur model dur)
     ModifyCandidate peer _bdel -> QSM.Boolean $
         peer `Map.member` cands
     NewCandidate peer _bdel -> QSM.Boolean $
@@ -222,6 +218,10 @@ precondition model = \case
         (peer `Map.member` cands)
      &&
         (peer `Set.notMember` idlers)
+    TimePasses dur -> QSM.Boolean $
+        (0 < dur)
+     &&
+        (boringDur model dur)
   where
     Model {
         mCandidates = cands
@@ -239,12 +239,6 @@ transition model cmd resp = fixupModelState $ case (cmd, resp) of
           }
     (ExtendSelection sdel, Unit) ->
         model' { mSelection = Selection (b + 1) (s + sdel) }
-    (Idle dur, Unit) ->
-        model {
-            mClock = SI.addTime (0.1 * fromIntegral dur) clk
-          ,
-            mPrev = WhetherPrevIdle True
-          }
     (ModifyCandidate peer bdel, Unit) ->
         model' {
             mCandidates = Map.insertWith plusC peer (Candidate bdel) cands
@@ -259,6 +253,12 @@ transition model cmd resp = fixupModelState $ case (cmd, resp) of
         model'
     (StartIdling peer, Unit) ->
         model' { mIdlers = Set.insert peer idlers }
+    (TimePasses dur, Unit) ->
+        model {
+            mClock = SI.addTime (0.1 * fromIntegral dur) clk
+          ,
+            mPrev = WhetherPrevTimePasses True
+          }
     o -> error $ "impossible response: " <> show o
   where
     Model {
@@ -271,7 +271,7 @@ transition model cmd resp = fixupModelState $ case (cmd, resp) of
         mSelection = Selection b s
       } = model
 
-    model' = model { mPrev = WhetherPrevIdle False }
+    model' = model { mPrev = WhetherPrevTimePasses False }
 
     plusC (Candidate x) (Candidate y) = Candidate (x + y)
 
@@ -297,8 +297,6 @@ generator model = Just $ QC.frequency $
     -- NB harmless to assume this node never mints
     [ (,) 10 $ ExtendSelection <$> schoose (-4) 10 | selectionIsBehind model ]
  <>
-    [ (,) 100 $ Idle <$> choose (1, 70) | prev == WhetherPrevIdle False ]
- <>
     [ (,) 20 $ ModifyCandidate <$> elements old <*> bchoose (-1) 5 | notNull old ]
  <>
     [ (,) 100 $
@@ -313,6 +311,8 @@ generator model = Just $ QC.frequency $
     [ (,) 20 $ pure ReadMarker ]
  <>
     [ (,) 50 $ StartIdling <$> elements oldNotIdling | notNull oldNotIdling ]
+ <>
+    [ (,) 100 $ TimePasses <$> choose (1, 70) | prev == WhetherPrevTimePasses False ]
   where
     Model {
         mCandidates = cands
@@ -340,8 +340,6 @@ shrinker _model = \case
         []
     ExtendSelection sdel ->
         [ ExtendSelection sdel' | sdel' <- shrinkS sdel ]
-    Idle dur ->
-        [ Idle dur' | dur' <- shrink dur, 0 < dur' ]
     ModifyCandidate peer bdel ->
         [ ModifyCandidate peer bdel' | bdel' <- shrinkB bdel, bdel' /= 0 ]
     NewCandidate peer bdel ->
@@ -352,6 +350,8 @@ shrinker _model = \case
         []
     StartIdling{} ->
         []
+    TimePasses dur ->
+        [ TimePasses dur' | dur' <- shrink dur, 0 < dur' ]
   where
     shrinkB (B x) = [ B x' | x' <- shrink x ]
     shrinkS (S x) = [ S x' | x' <- shrink x ]
@@ -362,8 +362,6 @@ mock model = pure . \case
         Unit
     ExtendSelection{} ->
         Unit
-    Idle{} ->
-        Unit
     ModifyCandidate{} ->
         Unit
     NewCandidate{} ->
@@ -373,6 +371,8 @@ mock model = pure . \case
     ReadMarker ->
         ReadThisMarker $ toMarker j
     StartIdling{} ->
+        Unit
+    TimePasses{} ->
         Unit
   where
     j = toJudgment $ mState model
@@ -500,7 +500,7 @@ data MarkerState = Present | Absent
   deriving stock    (Eq, Ord, Generic, Show)
   deriving anyclass (TD.ToExpr)
             
-newtype WhetherPrevIdle = WhetherPrevIdle Bool
+newtype WhetherPrevTimePasses = WhetherPrevTimePasses Bool
   deriving stock    (Eq, Ord, Generic, Show)
   deriving anyclass (TD.ToExpr)
 
@@ -545,22 +545,22 @@ fixupModelState :: Model r -> Model r
 fixupModelState model =
     case st of
         ModelTooOld | caughtUp ->
-            -- ASSUMPTION This new state was /NOT/ incurred by the 'Idle'
+            -- ASSUMPTION This new state was /NOT/ incurred by the 'TimePasses'
             -- command.
             --
             -- Therefore the current clock is necessarily the correct timestamp
             -- to record.
             model { mState = ModelYoungEnough clk }
         ModelYoungEnough timestamp | fellBehind timestamp ->
-            -- ASSUMPTION The 'Idle' command incurred this new state.
+            -- ASSUMPTION The 'TimePasses' command incurred this new state.
             --
             -- It's possible for the node to instantly return to CaughtUp, but
-            -- that might have happened /during/ the 'Idle' command, not only
-            -- when it ends.
+            -- that might have happened /during/ the 'TimePasses' command, not
+            -- only when it ends.
             --
             -- Therefore the age limit of the selection is the correct
             -- timestamp to record, instead of the current clock (ie when the
-            -- 'Idle' ended).
+            -- 'TimePasses' ended).
             --
             -- NOTE Superficially, in the real implementation, the Diffusion
             -- Layer should be discarding all peers when transitioning from
@@ -603,7 +603,7 @@ fixupModelState model =
     notThrashing timestamp = release timestamp <= clk
 
     -- The /last/ time the node instantaneously visited OnlyBootstrap during
-    -- the 'Idle' command.
+    -- the 'TimePasses' command.
     timestamp' timestamp =
         foldl max fortiethBirthday
       $ filter (< clk)   -- NB 'boringDur' prevents equivalence
@@ -628,7 +628,8 @@ ageLimit = 10   -- seconds
 thrashLimit :: Num a => a
 thrashLimit = 10   -- seconds
 
--- | Checks that an 'Idle' event does not end exactly when a timeout could fire
+-- | Checks that an 'TimePasses' command does not end exactly when a timeout
+-- could fire
 boringDur :: Model r -> Int -> Bool
 boringDur model dur =
     boringSelection && boringState
