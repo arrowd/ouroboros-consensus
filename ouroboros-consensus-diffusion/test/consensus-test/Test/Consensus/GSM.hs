@@ -13,7 +13,7 @@ module Test.Consensus.GSM (tests) where
 
 import           Control.Concurrent.Class.MonadSTM.Strict.TVar.Checked
 import           Control.Monad.Class.MonadAsync (withAsync)
-import           Control.Monad.Class.MonadFork (yield)
+import           Control.Monad.Class.MonadFork (MonadFork, yield)
 import           Control.Monad.Class.MonadSTM
 import qualified Control.Monad.Class.MonadTime.SI as SI
 import qualified Control.Monad.Class.MonadTimer.SI as SI
@@ -140,24 +140,27 @@ semantics vars = \case
             modifyTVar varCandidates $ Map.insert peer v
         pure Unit
     ReadJudgment -> do
-        yield
-        yield
-        yield
-        yield
-        yield
+        yield10
         fmap ReadThisJudgment $ atomically $ readTVar varJudgment
     ReadMarker -> do
-        yield
-        yield
-        yield
-        yield
-        yield
+        yield10
         fmap ReadThisMarker $ atomically $ readTVar varMarker
     StartIdling peer -> do
         atomically $ modifyTVar varIdlers $ Set.insert peer
         pure Unit
   where
     Vars varSelection varCandidates varIdlers varJudgment varMarker = vars
+
+-- | This is called before reading the implementation's state in order to
+-- ensure that all pending STM transactions have commited before this read.
+--
+-- I'm unsure how many are actually necessary, but ten is both small and also
+-- seems likely to suffice.
+yield10 :: MonadFork m => m ()
+yield10 =
+    do yield5; yield5
+  where
+    yield5 = do yield; yield; yield; yield; yield
 
 type Model :: (Type -> Type) -> Type
 data Model r = Model {
