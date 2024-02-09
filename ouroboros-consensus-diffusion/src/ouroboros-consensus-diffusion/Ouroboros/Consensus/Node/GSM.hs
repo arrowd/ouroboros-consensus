@@ -77,10 +77,12 @@ data CandidateVersusSelection =
   deriving (Eq, Show)
 
 data GsmView m upstreamPeer selection candidate = GsmView {
-    antiThunderingHerd        :: StdGen
+    antiThunderingHerd        :: Maybe StdGen
     -- ^ An initial seed used to randomly increase 'minCaughtUpDuration' by up
     -- to 15% every transition from OnlyBootstrap to CaughtUp, in order to
     -- avoid a thundering herd phenemenon.
+    --
+    -- 'Nothing' should only be used for testing.
   ,
     candidateOverSelection    ::
         selection -> candidate -> CandidateVersusSelection
@@ -221,14 +223,14 @@ realGsmEntryPoints gsmView = GsmEntryPoints {
     enterOnlyBootstrap :: forall neverTerminates. m neverTerminates
     enterOnlyBootstrap  = enterOnlyBootstrap' antiThunderingHerd
 
-    enterCaughtUp' :: forall neverTerminates. StdGen -> m neverTerminates
+    enterCaughtUp' :: forall neverTerminates. Maybe StdGen -> m neverTerminates
     enterCaughtUp' g = do
         blockWhileCaughtUp
 
         setCaughtUpPersistentMark False
         enterOnlyBootstrap' g
 
-    enterOnlyBootstrap' :: StdGen -> forall neverTerminates. m neverTerminates
+    enterOnlyBootstrap' :: Maybe StdGen -> forall neverTerminates. m neverTerminates
     enterOnlyBootstrap' g = do
         atomically $ StrictSTM.writeTVar varLedgerStateJudgement TooOld
         blockUntilCaughtUp
@@ -244,7 +246,12 @@ realGsmEntryPoints gsmView = GsmEntryPoints {
         -- OnlyBootstrap transition (ie in the registerDelay below), so that
         -- the onset itself of the hypothetical outage doesn't incur a
         -- thundering herd.
-        let (bonus, !g') = uniformR (0, 15 :: Int) g
+        let (bonus, g') = case g of
+                Nothing -> (0, Nothing)
+                Just x  ->
+                    let (bonus', !x') = uniformR (0, 15 :: Int) x
+                    in
+                    (bonus', Just x')
         SI.threadDelay
           $ realToFrac
           $ (1 + fromIntegral bonus / 100) * minCaughtUpDuration

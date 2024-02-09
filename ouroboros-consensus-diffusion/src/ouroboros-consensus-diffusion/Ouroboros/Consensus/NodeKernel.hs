@@ -195,7 +195,7 @@ initNodeKernel args@NodeKernelArgs { registry, cfg, tracers
 
     do  let GsmNodeKernelArgs {..} = gsmArgs
         let gsm = GSM.realGsmEntryPoints GSM.GsmView
-              { GSM.antiThunderingHerd        = gsmAntiThunderingHerd
+              { GSM.antiThunderingHerd        = Just gsmAntiThunderingHerd
               , GSM.candidateOverSelection    = \(headers, _lst) candidate ->
                     case AF.intersectionPoint headers candidate of
                         Nothing -> GSM.CandidateDoesNotIntersect
