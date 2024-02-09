@@ -479,11 +479,12 @@ data GenesisTest = GenesisTest {
   }
 
 prettyGenesisTest :: GenesisTest -> [String]
-prettyGenesisTest GenesisTest{gtHonestAsc, gtSecurityParam, gtGenesisWindow, gtDelay = Delta delta, gtBlockTree} =
+prettyGenesisTest GenesisTest{gtHonestAsc, gtSecurityParam, gtGenesisWindow, gtForecastRange, gtDelay = Delta delta, gtBlockTree} =
   [ "GenesisTest:"
   , "  gtHonestAsc: " ++ show (ascVal gtHonestAsc)
   , "  gtSecurityParam: " ++ show (maxRollbacks gtSecurityParam)
   , "  gtGenesisWindow: " ++ show (unGenesisWindow gtGenesisWindow)
+  , "  gtForecastRange: " ++ show (unForecastRange gtForecastRange)
   , "  gtDelay: " ++ show delta
   , "  gtBlockTree:"
   ] ++ (("    " ++) <$> prettyBlockTree gtBlockTree)
