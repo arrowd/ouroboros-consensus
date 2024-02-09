@@ -285,6 +285,14 @@ realGsmEntryPoints gsmView = GsmEntryPoints {
 
         -- STAGE 2: no candidate is better than the node's current
         -- selection
+        --
+        -- For the Bootstrap State Machine, it's fine to completely ignore
+        -- block diffusion pipelining here, because all bootstrap peers will
+        -- /promptly/ rollback the tentative header if its block body turns out
+        -- to be invalid (aka /trap header/). Thus the node will stay in
+        -- CaughtUp slighty longer, until the system is no longer pipelining a
+        -- block; general Praos reasoning ensures that won't take particularly
+        -- long.
         selection  <- getCurrentSelection
         candidates <- traverse StrictSTM.readTVar varsCandidate
         let ok candidate =
