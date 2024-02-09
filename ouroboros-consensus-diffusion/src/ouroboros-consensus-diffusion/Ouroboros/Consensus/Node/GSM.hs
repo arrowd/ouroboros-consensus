@@ -239,6 +239,11 @@ realGsmEntryPoints gsmView = GsmEntryPoints {
         -- When transitioning from OnlyBootstrap to CaughtUp, the node will
         -- remain in CaughtUp for at least 'minCaughtUpDuration', regardless of
         -- the selection's age. And randomly up to 15% longer.
+        --
+        -- TODO This smearing should instead happen on the CaughtUp to
+        -- OnlyBootstrap transition (ie in the registerDelay below), so that
+        -- the onset itself of the hypothetical outage doesn't incur a
+        -- thundering herd.
         let (bonus, !g') = uniformR (0, 15 :: Int) g
         SI.threadDelay
           $ realToFrac
