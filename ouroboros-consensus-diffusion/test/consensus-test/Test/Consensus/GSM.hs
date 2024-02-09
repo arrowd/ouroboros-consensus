@@ -37,13 +37,14 @@ import qualified Test.StateMachine as QSM
 import qualified Test.StateMachine.Types as QSM
 import qualified Test.StateMachine.Types.Rank2 as QSM
 import           Test.Util.Orphans.IOLike ()
+import           Test.Util.TestEnv (adjustQuickCheckTests)
 import           Test.Util.ToExpr ()
 import           Test.Tasty (TestTree)
 import           Test.Tasty.QuickCheck (testProperty)
 
 tests :: [TestTree]
 tests = [
-    testProperty "GSM" prop_sequential
+    adjustQuickCheckTests (* 100) $ testProperty "GSM" prop_sequential
   ]
 
 -----
