@@ -213,6 +213,8 @@ test-suite consensus-test
   hs-source-dirs: test/consensus-test
   main-is:        Main.hs
   other-modules:
+    Test.Consensus.IOSimQSM.Test.StateMachine.Sequential
+
     Test.Consensus.BlockTree
     Test.Consensus.GSM
     Test.Consensus.Genesis.Setup
@@ -258,17 +260,21 @@ test-suite consensus-test
     , ouroboros-network-framework
     , ouroboros-network-mock
     , ouroboros-network-protocols
+    , pretty-show
     , QuickCheck
+    , quickcheck-state-machine
     , quiet
     , serialise
     , si-timers
     , sop-extras
+    , strict-checked-vars
     , strict-sop-core
     , strict-stm
     , tasty
     , tasty-hunit
     , tasty-quickcheck
     , temporary
+    , tree-diff
     , time
     , typed-protocols
     , typed-protocols-examples
