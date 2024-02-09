@@ -152,17 +152,6 @@ semantics vars = \case
   where
     Vars varSelection varCandidates varIdlers varJudgment varMarker = vars
 
--- | This is called before reading the implementation's state in order to
--- ensure that all pending STM transactions have commited before this read.
---
--- I'm unsure how many are actually necessary, but ten is both small and also
--- seems likely to suffice.
-yield10 :: MonadFork m => m ()
-yield10 =
-    do yield5; yield5
-  where
-    yield5 = do yield; yield; yield; yield; yield
-
 type Model :: (Type -> Type) -> Type
 data Model r = Model {
     mCandidates :: Map.Map UpstreamPeer Candidate
@@ -475,7 +464,7 @@ newtype B = B Int
   deriving newtype  (Num)
   deriving anyclass (TD.ToExpr)
 
--- | A slock count
+-- | A slot count
 newtype S = S Int
   deriving stock    (Eq, Ord, Generic, Show)
   deriving newtype  (Num)
@@ -598,16 +587,16 @@ fixupModelState model =
         GSM.WhetherCandidateIsBetter False == candidateOverSelection sel cand
 
     fortiethBirthday = SI.addTime ageLimit (onset sel)
-    tooOld           = fortiethBirthday < clk   -- NB 'boringDur' prevents equivalence
+    tooOld           = fortiethBirthday < clk   -- NB 'boringDur' prevents ==
 
-    release      timestamp = SI.addTime thrashLimit timestamp
-    notThrashing timestamp = release timestamp < clk   -- NB 'boringDur' prevents equivalence
+    notThrashing timestamp =
+        SI.addTime thrashLimit timestamp < clk   -- NB 'boringDur' prevents ==
 
     -- The /last/ time the node instantaneously visited OnlyBootstrap during
     -- the 'TimePasses' command.
     timestamp' timestamp =
         foldl max fortiethBirthday
-      $ filter (< clk)   -- NB 'boringDur' prevents equivalence
+      $ filter (< clk)   -- NB 'boringDur' prevents ==
       $ iterate (SI.addTime thrashLimit) timestamp
 
 selectionIsBehind :: Model r -> Bool
@@ -661,6 +650,17 @@ boringDur model dur =
 
 -----
 
+-- | This is called before reading the implementation's state in order to
+-- ensure that all pending STM transactions have commited before this read.
+--
+-- I'm unsure how many are actually necessary, but ten is both small and also
+-- seems likely to suffice.
+yield10 :: MonadFork m => m ()
+yield10 =
+    do yield5; yield5
+  where
+    yield5 = do yield; yield; yield; yield; yield
+
 data Vars m = Vars
     (StrictTVar m Selection)
     (StrictTVar m (Map.Map UpstreamPeer (StrictTVar m Candidate)))
@@ -680,17 +680,16 @@ instance QC.Arbitrary MarkerState where
         Absent  -> [Present]
         Present -> []
 
-
 instance TD.ToExpr SI.Time              where toExpr = TD.defaultExprViaShow
 instance TD.ToExpr LedgerStateJudgement where toExpr = TD.defaultExprViaShow
 
 -----
 
--- TODO 'realMarkerFileView' unit tests.
+-- TODO 'realMarkerFileView' tests
 
--- TODO 'initializationLedgerJudgement' tests.
+-- TODO 'initializationLedgerJudgement' tests
 
--- TODO 'realDurationUntilTooOld' tests.
+-- TODO 'realDurationUntilTooOld' tests
 
 -- TODO The ChainSync client should signal idle exactly when and only when the
 -- MsgAwaitReply is processed.

@@ -10,7 +10,9 @@
 --
 -- /___This is a superficial variation of the quickcheck-state-machine___/
 -- /___source file that uses @io-classes@ instead of @MonadIO@, @UnliftIO@,___/
--- /___etc.___/
+-- /___etc.___/ Perhaps
+-- <https://github.com/input-output-hk/quickcheck-dynamic/tree/main/quickcheck-dynamic-iosim>
+-- will supplant this.
 -- 
 --
 --
