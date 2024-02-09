@@ -182,7 +182,7 @@ initializationLedgerJudgement
 -- | The actual GSM logic for boot strap peers
 --
 -- See the @BootstrapPeersIER.md@ document for the specification of this logic.
-realGsmEntryPoints :: forall m blk upstreamPeer selection candidate.
+realGsmEntryPoints :: forall m upstreamPeer selection candidate.
      ( SI.MonadDelay m
      , SI.MonadTimer m
      , Eq upstreamPeer
