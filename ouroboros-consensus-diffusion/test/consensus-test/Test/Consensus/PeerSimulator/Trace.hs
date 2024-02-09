@@ -22,7 +22,7 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
 import           Ouroboros.Consensus.Util.IOLike (IOLike, MonadMonotonicTime,
                      Time (Time), getMonotonicTime)
 import           Test.Util.TersePrinting (terseHFragment, tersePoint,
-                     terseRealPoint)
+                     terseRealPoint, terseHeader)
 import           Test.Util.TestBlock (TestBlock)
 import           Text.Printf (printf)
 
@@ -61,6 +61,10 @@ mkChainSyncClientTracer tracer =
       trace $ "Waiting for " ++ show slot ++ " beyond forecast horizon taken from " ++ show forecastAt
     TraceAccessingForecastHorizon forecastAt slot ->
       trace $ "Accessing " ++ show slot ++ ", previously beyond forecast horizon taken from " ++ show forecastAt
+    TraceValidatedHeader header ->
+      trace $ "Validated header: " ++ terseHeader header
+    TraceDownloadedHeader header ->
+      trace $ "Downloaded header: " ++ terseHeader header
     _ -> pure ()
   where
     trace = traceUnitWith tracer "ChainSyncClient"
