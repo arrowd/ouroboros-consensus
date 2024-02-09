@@ -448,7 +448,7 @@ prop_sequential j0 =
               ,
                 GSM.minCaughtUpDuration = thrashLimit
               ,
-                GSM.setCaughtUpPersistentMark = \b -> 
+                GSM.setCaughtUpPersistentMark = \b ->
                     atomically $ do
                         writeTVar varMarker $ if b then Present else Absent
               ,
@@ -457,7 +457,7 @@ prop_sequential j0 =
             gsmEntryPoint = case j0 of
                 TooOld      -> GSM.enterOnlyBootstrap gsm
                 YoungEnough -> GSM.enterCaughtUp      gsm
-            
+
         (hist, _model, res) <- id
           $ withAsync gsmEntryPoint
           $ \_async -> runCommands' (pure sm') cmds
@@ -500,7 +500,7 @@ newtype Candidate = Candidate B
 data MarkerState = Present | Absent
   deriving stock    (Eq, Ord, Generic, Show)
   deriving anyclass (TD.ToExpr)
-            
+
 newtype WhetherPrevTimePasses = WhetherPrevTimePasses Bool
   deriving stock    (Eq, Ord, Generic, Show)
   deriving anyclass (TD.ToExpr)
