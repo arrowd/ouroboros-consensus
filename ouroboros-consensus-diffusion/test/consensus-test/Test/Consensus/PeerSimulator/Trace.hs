@@ -21,8 +21,8 @@ import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
                      (TraceAddBlockEvent (..))
 import           Ouroboros.Consensus.Util.IOLike (IOLike, MonadMonotonicTime,
                      Time (Time), getMonotonicTime)
-import           Test.Util.TersePrinting (terseHFragment, tersePoint,
-                     terseRealPoint, terseHeader)
+import           Test.Util.TersePrinting (terseHFragment, terseHeader,
+                     tersePoint, terseRealPoint)
 import           Test.Util.TestBlock (TestBlock)
 import           Text.Printf (printf)
 

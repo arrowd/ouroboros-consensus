@@ -123,6 +123,8 @@ mkForAllGenesisTest mkPointSchedule generator schedulerConfig shrinker mkPropert
   forAllGenRunShrinkCheck generator runner shrinker' $ \(genesisTest, schedule) result ->
     let cls = classifiers genesisTest
      in classify (allAdversariesSelectable cls) "All adversaries selectable" $
+        classify (allAdversariesForecastable cls) "All adversaries forecastable" $
+        classify (allAdversariesKPlus1InForecast cls) "All adversaries have k+1 blocks in forecast window after intersection" $
         classify (genesisWindowAfterIntersection cls) "Full genesis window after intersection" $
         counterexample (rgtrTrace result) $
         mkProperty genesisTest schedule (rgtrStateView result)
