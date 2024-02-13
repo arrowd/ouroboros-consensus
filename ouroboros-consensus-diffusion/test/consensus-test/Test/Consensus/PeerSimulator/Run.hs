@@ -182,7 +182,7 @@ startChainSyncConnectionThread registry tracer cfg activeSlotCoefficient chainDb
 -- | Start the BlockFetch client, using the supplied 'FetchClientRegistry' to
 -- register it for synchronization with the ChainSync client.
 startBlockFetchConnectionThread ::
-  (IOLike m, MonadTime m) =>
+  (IOLike m, MonadTime m, MonadTimer m) =>
   ResourceRegistry m ->
   FetchClientRegistry PeerId (Header TestBlock) TestBlock m ->
   ControlMessageSTM m ->
