@@ -5,12 +5,13 @@ module Test.Ouroboros.Consensus.ChainGenerator.Params (
   , Delta (Delta)
   , Kcp (Kcp)
   , Len (Len)
-  , Scg (Scg)
+  , Sfor (Sfor)
+  , Sgen (Sgen)
   , ascFromBits
   , ascFromDouble
   , ascVal
   , genAsc
-  , genKSD
+  , genKSSD
   ) where
 
 import qualified Data.Bits as B
@@ -50,16 +51,37 @@ newtype Len = Len Int
 newtype Kcp = Kcp Int
   deriving (Eq, Ord, Show, Read)
 
--- | The @s@ parameter of the Praos Chain Growth property
+-- | The @s@ parameters.
 --
--- Also known as the width of the /stability window/. In particular, we assume
--- that an adversarial stake holder cannot drastically increase their rate of
--- election until at least @s@ many slots after the first block on an
+-- There are three of them, all describing a number of slots:
+--
+-- - @scg@, the @s@ parameter of the Praos Chain Growth property,
+-- - @sgen@, the size of the Genesis window, and
+-- - @sfor@, the size of the forecast window.
+--
+-- @scg@ is a theoretical parameter. It is also known as the width of the
+-- /stability window/, in which an adversarial stake holder cannot drastically
+-- increase their rate of election until at least @scg@ many slots after the
+-- first block on an adversarial chain. In other words: we're assuming that any
+-- serious attempt to corrupt the leader schedule would be isolated to a private
 -- adversarial chain.
 --
--- In other words: we're assuming that any serious attempt to corrupt the leader
--- schedule would be isolated to a private adversarial chain.
-newtype Scg = Scg Int
+-- @sgen@ and @sfor@ are concrete parameters of the chain that affect the
+-- behaviour of a node. @sgen@ determines the amount of slots which we will
+-- consider to decide of a better chain in the Genesis algorithm. @sfor@
+-- determines how many slots in advance we will allow ourselves to validate
+-- headers.
+--
+-- We must have @sgen <= scg@ because it would otherwise not be guaranteed that
+-- the adversary cannot make itself extra-dense in the Genesis window. We must
+-- have @sgen <= sfor@ because it would otherwise not always be possible to
+-- validate all the headers in the Genesis window. In practice, we will take
+-- @sgen = sfor = scg@.
+
+newtype Sgen = Sgen Int
+  deriving (Eq, Ord, Show, Read)
+
+newtype Sfor = Sfor Int
   deriving (Eq, Ord, Show, Read)
 
 -----
@@ -96,11 +118,12 @@ ascVal (Asc x) = x
 genAsc :: QC.Gen Asc
 genAsc = ascFromBits <$> QC.choose (1 :: Word8, maxBound - 1)
 
-genKSD :: QC.Gen (Kcp, Scg, Delta)
-genKSD = sized1 $ \sz -> do
+genKSSD :: QC.Gen (Kcp, Sgen, Sfor, Delta)
+genKSSD = sized1 $ \sz -> do
     -- k > 1 so we can ensure an alternative schema loses the density comparison
     -- without having to deactivate the first active slot
     k <- (+ 2) <$> QC.choose (0, sz)
-    s <- (+ k) <$> QC.choose (0, 2 * sz)   -- ensures @k / s <= 1@
-    d <- QC.choose (0, max 0 $ min (div sz 4) (s-1)) -- ensures @d < s@
-    pure (Kcp k, Scg s, Delta d)
+    sgen <- (+ k) <$> QC.choose (0, 2 * sz)   -- ensures @k / s <= 1@
+    let sfor = sgen
+    d <- QC.choose (0, max 0 $ min (div sz 4) (sgen-1)) -- ensures @d < s@
+    pure (Kcp k, Sgen sgen, Sfor sfor, Delta d)

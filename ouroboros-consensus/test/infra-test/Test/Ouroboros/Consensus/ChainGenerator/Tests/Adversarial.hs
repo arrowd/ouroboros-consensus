@@ -25,7 +25,7 @@ import qualified Test.Ouroboros.Consensus.ChainGenerator.BitVector as BV
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Counting as C
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Honest as H
 import           Test.Ouroboros.Consensus.ChainGenerator.Params (Asc,
-                     Delta (Delta), Kcp (Kcp), Len (Len), Scg (Scg), genAsc)
+                     Delta (Delta), Kcp (Kcp), Len (Len), Sgen (Sgen), genAsc)
 import qualified Test.Ouroboros.Consensus.ChainGenerator.RaceIterator as RI
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Slot as S
 import           Test.Ouroboros.Consensus.ChainGenerator.Slot (E (SlotE))
@@ -111,12 +111,12 @@ instance QC.Arbitrary SomeTestAdversarial where
 
         let arPrefix = genPrefixBlockCount testRecipeH testSeedPrefix arHonest
 
-            H.HonestRecipe kcp scg delta _len = testRecipeH
+            H.HonestRecipe kcp sgen sfor delta _len = testRecipeH
 
             testRecipeA = A.AdversarialRecipe {
                 A.arPrefix
               ,
-                A.arParams = (kcp, scg, delta)
+                A.arParams = (kcp, sgen, sfor, delta)
               ,
                 A.arHonest
               }
@@ -164,10 +164,10 @@ prop_kPlus1BlocksAfterIntersection someTestAdversarial testSeedA = runIdentity $
         schedA = A.uniformAdversarialChain (Just testAscA) recipeA' testSeedA
         H.ChainSchema winA vA = schedA
         H.ChainSchema _winH vH = schedH
-        A.AdversarialRecipe { A.arParams = (Kcp k, scg, _delta) } = testRecipeA
+        A.AdversarialRecipe { A.arParams = (Kcp k, sgen, _sfor, _delta) } = testRecipeA
 
     C.SomeWindow Proxy stabWin <- do
-        pure $ calculateStability scg schedA
+        pure $ calculateStability sgen schedA
 
     pure $
       QC.counterexample (unlines $
@@ -204,8 +204,8 @@ prop_adversarialChain someTestAdversarial testSeedA = runIdentity $ do
     let H.ChainSchema winA _vA = schedA
 
     C.SomeWindow Proxy stabWin <- do
-        let A.AdversarialRecipe { A.arParams = (_kcp, scg, _delta) } = testRecipeA
-        pure $ calculateStability scg schedA
+        let A.AdversarialRecipe { A.arParams = (_kcp, sgen, _sfor, _delta) } = testRecipeA
+        pure $ calculateStability sgen schedA
 
     pure $ case Exn.runExcept $ A.checkAdversarialChain testRecipeA schedA of
         Right () -> QC.property ()
@@ -232,8 +232,8 @@ prop_adversarialChain someTestAdversarial testSeedA = runIdentity $ do
 data AdvStabLbl
 
 -- | Calculate the interval in which the adversary can not yet have accelerated
-calculateStability :: Scg -> H.ChainSchema base adv -> C.SomeWindow AdvStabLbl adv SlotE
-calculateStability (Scg s) schedA =
+calculateStability :: Sgen -> H.ChainSchema base adv -> C.SomeWindow AdvStabLbl adv SlotE
+calculateStability (Sgen s) schedA =
     C.withWindow (C.windowSize winA) (C.Lbl @AdvStabLbl) (C.Count 0) (C.Count $ firstActive + theBlockItself + s)
   where
     H.ChainSchema winA vA = schedA
@@ -280,11 +280,11 @@ data AdversarialMutation =
     AdversarialMutateKcp
 {-
   |
-    -- | Decreasing 'Scg' by one may case the adversary to win a (conservative) race
-    AdversarialMutateScgNeg
+    -- | Decreasing 'Sgen' by one may case the adversary to win a (conservative) race
+    AdversarialMutateSgenNeg
   |
-    -- | Increasing 'Scg' by one may case the adversary to accelerate prematurely
-    AdversarialMutateScgPos
+    -- | Increasing 'Sgen' by one may case the adversary to accelerate prematurely
+    AdversarialMutateSgenPos
 -}
   deriving (Bounded, Eq, Enum, Read, Show)
 
@@ -322,15 +322,15 @@ instance Read SomeTestAdversarialMutation where
 
 mutateAdversarial :: A.AdversarialRecipe base hon -> AdversarialMutation -> A.AdversarialRecipe base hon
 mutateAdversarial recipe mut =
-    A.AdversarialRecipe { A.arHonest, A.arParams = (Kcp k', Scg s', Delta d'), A.arPrefix }
+    A.AdversarialRecipe { A.arHonest, A.arParams = (Kcp k', Sgen s', Delta d'), A.arPrefix }
   where
-    A.AdversarialRecipe { A.arHonest, A.arParams = (Kcp k,  Scg s,  Delta d ), A.arPrefix } = recipe
+    A.AdversarialRecipe { A.arHonest, A.arParams = (Kcp k,  Sgen s,  Delta d ), A.arPrefix } = recipe
 
     (k', s', d') = case mut of
         AdversarialMutateDelta -> (k,     s,     d + 1)
         AdversarialMutateKcp   -> (k - 2, s,     d    )
---        AdversarialMutateScgNeg -> (k,     s - 1, d    )
---        AdversarialMutateScgPos -> (k,     s + 1, d    )
+--        AdversarialMutateSgenNeg -> (k,     s - 1, d    )
+--        AdversarialMutateSgenPos -> (k,     s + 1, d    )
 
 instance QC.Arbitrary SomeTestAdversarialMutation where
     arbitrary = do

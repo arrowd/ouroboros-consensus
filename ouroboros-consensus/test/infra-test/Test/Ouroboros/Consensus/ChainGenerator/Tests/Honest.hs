@@ -19,8 +19,8 @@ import qualified System.Random as R
 import qualified System.Timeout as IO (timeout)
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Honest as H
 import           Test.Ouroboros.Consensus.ChainGenerator.Params (Asc,
-                     Delta (Delta), Kcp (Kcp), Len (Len), Scg (Scg), genAsc,
-                     genKSD)
+                     Delta (Delta), Kcp (Kcp), Len (Len), Sfor (Sfor),
+                     Sgen (Sgen), genAsc, genKSSD)
 import qualified Test.QuickCheck as QC
 import           Test.QuickCheck.Extras (sized1, unsafeMapSuchThatJust)
 import           Test.QuickCheck.Random (QCGen)
@@ -77,10 +77,10 @@ prop_honestChain testHonest testSeed = runIdentity $ do
             Left e   -> case e of
                 H.BadCount{}      -> QC.counterexample (show e) False
                 H.BadLength{}     -> QC.counterexample (show e) False
-                H.BadScgWindow v ->
+                H.BadSgenWindow v ->
                     let str = case v of
-                            H.ScgViolation {
-                                H.scgvWindow = win
+                            H.SgenViolation {
+                                H.sgenvWindow = win
                               } -> H.prettyWindow win "SCGV"
                     in
                         id
@@ -107,8 +107,8 @@ data HonestMutation =
     -- | Increasing 'Kcp' by one increases the SCG numerator
     HonestMutateKcp
   |
-    -- | Decreasing 'Scg' by one decreases the SCG denominator
-    HonestMutateScg
+    -- | Decreasing 'Sgen' by one decreases the SCG denominator
+    HonestMutateSgen
   deriving (Eq, Read, Show)
 
 data TestHonestMutation =
@@ -120,26 +120,26 @@ data TestHonestMutation =
 
 mutateHonest :: H.HonestRecipe -> HonestMutation -> H.HonestRecipe
 mutateHonest recipe mut =
-    H.HonestRecipe (Kcp k') (Scg s') (Delta d') len
+    H.HonestRecipe (Kcp k') (Sgen sgen') (Sfor sfor') (Delta d') len
   where
-    H.HonestRecipe (Kcp k) (Scg s) (Delta d) len = recipe
+    H.HonestRecipe (Kcp k) (Sgen sgen) (Sfor sfor) (Delta d) len = recipe
 
-    (k', s', d') = case mut of
-        HonestMutateKcp -> (k + 1, s,     d    )
-        HonestMutateScg -> (k,     s - 1, d    )
+    (k', sgen', sfor', d') = case mut of
+        HonestMutateKcp  -> (k + 1, sgen,     sfor,     d    )
+        HonestMutateSgen -> (k,     sgen - 1, sfor - 1, d    )
 
 instance QC.Arbitrary TestHonestMutation where
     arbitrary = sized1 $ \sz -> unsafeMapSuchThatJust $ do
-        (kcp, Scg s, delta) <- genKSD
-        l <- (+ s) <$> QC.choose (0, 5 * sz)
+        (kcp, Sgen sgen, Sfor sfor, delta) <- genKSSD
+        l <- (+ sgen) <$> QC.choose (0, 5 * sz)
 
-        let testRecipe = H.HonestRecipe kcp (Scg s) delta (Len l)
+        let testRecipe = H.HonestRecipe kcp (Sgen sgen) (Sfor sfor) delta (Len l)
 
         testRecipe' <- case Exn.runExcept $ H.checkHonestRecipe testRecipe of
             Left e  -> error $ "impossible! " <> show (testRecipe, e)
             Right x -> pure x
 
-        mut <- QC.elements [HonestMutateKcp, HonestMutateScg]
+        mut <- QC.elements [HonestMutateKcp, HonestMutateSgen]
 
         pure $ case Exn.runExcept $ H.checkHonestRecipe $ mutateHonest testRecipe mut of
             Left{}  -> Nothing
@@ -172,6 +172,6 @@ prop_honestChainMutation testHonestMut testSeedsSeed0 = QC.ioProperty $ do
         case Exn.runExcept m of
             Right () -> go recipe' testSeedsSeed'
             Left e   -> case e of
-                H.BadCount{}     -> error $ "impossible! " <> show e
-                H.BadScgWindow{} -> True
-                H.BadLength{}    -> error $ "impossible! " <> show e
+                H.BadCount{}      -> error $ "impossible! " <> show e
+                H.BadSgenWindow{} -> True
+                H.BadLength{}     -> error $ "impossible! " <> show e

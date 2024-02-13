@@ -40,7 +40,7 @@ import qualified Test.Ouroboros.Consensus.ChainGenerator.Counting as C
 import           Test.Ouroboros.Consensus.ChainGenerator.Honest
                      (ChainSchema (ChainSchema), HonestRecipe (HonestRecipe))
 import           Test.Ouroboros.Consensus.ChainGenerator.Params (Asc,
-                     Delta (Delta), Kcp (Kcp), Scg (Scg))
+                     Delta (Delta), Kcp (Kcp), Sfor (Sfor), Sgen (Sgen))
 import qualified Test.Ouroboros.Consensus.ChainGenerator.RaceIterator as RI
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Slot as S
 import           Test.Ouroboros.Consensus.ChainGenerator.Slot
@@ -105,7 +105,7 @@ data AdversarialViolation hon adv =
 --
 -- Definition of /Acceleration Lower Bound of an Adversarial Chain/. It is
 -- the lowest slot at which an adversary could speed up its elections on a
--- given adversarial chain. It is defined as the 'Scg'-th slot after the first
+-- given adversarial chain. It is defined as the 'Sgen'-th slot after the first
 -- adversarial block or the 'Delta'-th slot after the @k+1@st honest block after the
 -- intersection, whichever is greater.
 --
@@ -134,7 +134,7 @@ checkAdversarialChain recipe adv = do
     AdversarialRecipe {
         arHonest = ChainSchema winH vH
       ,
-        arParams = (Kcp k, Scg s, Delta d)
+        arParams = (Kcp k, Sgen sgen, Sfor _sfor, Delta d)
       ,
         arPrefix
       } = recipe
@@ -180,7 +180,7 @@ checkAdversarialChain recipe adv = do
         let sYoungest = case BV.findIthEmptyInV S.inverted vA (C.Count 0) of
               BV.JustFound firstActiveA ->
                 -- if s=0, then the slot of their block is the youngest stable slot
-                C.fromWindow winA $ firstActiveA C.+ s
+                C.fromWindow winA $ firstActiveA C.+ sgen
               BV.NothingFound           ->
                 -- the rest of the function won't force this since there are no
                 -- adversarial active slots
@@ -277,7 +277,7 @@ checkAdversarialChain recipe adv = do
         C.SomeWindow pw0 w0 <- let RI.Race x = iterH in pure x
 
         let
-          w0' = C.truncateWin w0 (C.Count s)
+          w0' = C.truncateWin w0 (C.Count sgen)
           vvH = C.getVector vHAfterIntersection
           vvA = C.getVector vA
           -- cumulative sums of active slots per slot after the intersection
@@ -285,8 +285,8 @@ checkAdversarialChain recipe adv = do
           aSum = Vector.scanl (+) 0 (Vector.map (\x -> if S.test S.notInverted x then 1 else 0) vvA)
           -- cumulative sums of active slots per slot until the first stability
           -- window after the intersection
-          hwSum = Vector.toList $ Vector.drop (C.getCount $ C.windowSize w0') $ Vector.take (s + 1) hSum
-          awSum = Vector.toList $ Vector.drop (C.getCount $ C.windowSize w0') $ Vector.take (s + 1) aSum
+          hwSum = Vector.toList $ Vector.drop (C.getCount $ C.windowSize w0') $ Vector.take (sgen + 1) hSum
+          awSum = Vector.toList $ Vector.drop (C.getCount $ C.windowSize w0') $ Vector.take (sgen + 1) aSum
         case [ cmp | cmp@(_, (x, y)) <- zip [0..] (zip hwSum awSum), x <= y ] of
           []         -> pure ()
           ((i, (x, y)):_) ->
@@ -304,7 +304,7 @@ data AdversarialRecipe base hon =
         arHonest :: !(ChainSchema base hon)
       ,
         -- | protocol parameters
-        arParams :: (Kcp, Scg, Delta)
+        arParams :: (Kcp, Sgen, Sfor, Delta)
       ,
         -- | Where to branch off of 'arHonest'
         --
@@ -348,7 +348,7 @@ data CheckedAdversarialRecipe base hon adv =
         carHonest :: !(ChainSchema base hon)
       ,
         -- | protocol parameters
-        carParams :: (Kcp, Scg, Delta)
+        carParams :: (Kcp, Sgen, Sfor, Delta)
       ,
         -- | The window starting at the first slot after the intersection
         -- and ending at the last slot of 'carHonest'.
@@ -447,7 +447,7 @@ checkAdversarialRecipe recipe = do
         arPrefix
       } = recipe
 
-    (Kcp k, _scg, _delta) = arParams
+    (Kcp k, _sgen, _sfor, _delta) = arParams
 
     ChainSchema winH vH = arHonest
 
@@ -498,7 +498,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
        -- active slot a stability window earlier.
        -- See Note [Minimum schema length] in "Test.Ouroboros.Consensus.ChainGenerator.Honest"
        -- for the rationale.
-       let trailingSlots = s + k
+       let trailingSlots = sgen + k
            szFirstActive = sz C.- trailingSlots
        when (szFirstActive <= C.Count 0) $
          error "the adversarial schema length should be greater than s+k"
@@ -525,7 +525,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
     let iterH :: RI.Race adv
         iterH =
             fromMaybe (error "there should be k+1 active slots after the intersection")
-          $ RI.init kcp vHAfterIntersection
+          $ RI.init (Kcp k) vHAfterIntersection
 
     -- We don't want to change the first active slot in the adversarial chain
     -- Otherwise, we can't predict the position of the acceleration bound.
@@ -551,23 +551,19 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
     UnsafeCheckedAdversarialRecipe {
         carHonest
       ,
-        carParams = (kcp, scg, delta)
+        carParams = (Kcp k, Sgen sgen, Sfor _sfor, Delta d)
       ,
         carWin
       } = recipe
 
     wrap v = ChainSchema (C.joinWin winH carWin) v
 
-    Kcp   k = kcp
-    Scg   s = scg
-    Delta d = delta
-
     ChainSchema winH vH = carHonest
 
     vHAfterIntersection = C.sliceV carWin vH
 
     -- ensure the adversary loses this 'RI.Race' and each subsequent race that ends before it can accelerate
-    unfillRaces kPlus1st !scope !mbYS !iter !g !mv = when (withinYS delta mbYS iter) $ do
+    unfillRaces kPlus1st !scope !mbYS !iter !g !mv = when (withinYS (Delta d) mbYS iter) $ do
         C.SomeWindow Proxy rwin <- pure $ let RI.Race x = iter in x
 
         C.SomeWindow (Proxy :: Proxy skolem) win <-
@@ -656,7 +652,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
                                 pure $! KnownYS $!
                                   max
                                     (kPlus1st C.+ d C.+ 1)
-                                    (C.fromWindow settledSlots x C.+ s C.+ 1)
+                                    (C.fromWindow settledSlots x C.+ sgen C.+ 1)
                 unfillRaces kPlus1st (max scope (C.windowLast win C.+ 1)) mbYS' iter' g mv
 
     -- | Ensure the density of the adversarial schema is less than the density
@@ -690,7 +686,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
         let
           -- A window after the intersection as short as the shortest of the
           -- stability window or the first race to the k+1st block.
-          w0' = C.truncateWin w0 (C.Count s)
+          w0' = C.truncateWin w0 (C.Count sgen)
           hCount = C.toVar $
             BV.countActivesInV S.notInverted (C.sliceV w0' vHAfterIntersection)
 
@@ -709,7 +705,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
           let
             start = C.windowStart w
             size  = C.getCount (C.windowSize w)
-            end   = s `min` C.getCount (C.lengthMV mv)
+            end   = sgen `min` C.getCount (C.lengthMV mv)
            in
             [ C.UnsafeContains start (C.Count size') | size' <- [ size+1 .. end ] ]
 
@@ -772,7 +768,7 @@ uniformAdversarialChain mbAsc recipe g0 = wrap $ C.createV $ do
 
 -- | The youngest stable slot
 --
--- If @x@ is the first adversarial active slot, then @x+s@ (see 'Scg') is the youngest stable slot.
+-- If @x@ is the first adversarial active slot, then @x+s@ (see 'Sgen') is the youngest stable slot.
 data MaybeYS base = UnknownYS | KnownYS !(C.Index base SlotE)
   deriving (Eq, Read, Show)
 
@@ -780,7 +776,7 @@ data MaybeYS base = UnknownYS | KnownYS !(C.Index base SlotE)
 withinYS :: Delta -> MaybeYS base -> RI.Race base -> Bool
 withinYS (Delta d) !mbYS !(RI.Race (C.SomeWindow Proxy win)) = case mbYS of
     KnownYS ys -> C.windowLast win C.+ d < ys
-    UnknownYS  -> True   -- Honest Chain Growth ensures every Race Window is at most @'Scg' - 'Delta'@ slots wide
+    UnknownYS  -> True   -- Honest Chain Growth ensures every Race Window is at most @'Sgen' - 'Delta'@ slots wide
 
 -- | Draw a random active slot count for the prefix of a fork.
 --
@@ -791,12 +787,12 @@ withinYS (Delta d) !mbYS !(RI.Race (C.SomeWindow Proxy win)) = case mbYS of
 --
 -- PRECONDITION: @schemaSize schedH >= 2*s + d + 1@
 genPrefixBlockCount :: R.RandomGen g => HonestRecipe -> g -> ChainSchema base hon -> C.Var hon 'ActiveSlotE
-genPrefixBlockCount (HonestRecipe (Kcp k) (Scg s) (Delta d) _len) g schedH
-    | C.lengthV vH < C.Count (2*s + d + 1) =
+genPrefixBlockCount (HonestRecipe (Kcp k) (Sgen sgen) (Sfor sfor) (Delta d) _len) g schedH
+    | C.lengthV vH < C.Count (2*sgen + d + 1) =
         error "size of schema is smaller than 2*s + d + 1"
     | phase1 == C.Count 0 =
         error $ "there should be at least k active slots in the first s slots of the honest schema: "
-                ++ show (k, s, vH)
+                ++ show (k, sgen, sfor, vH)
     | otherwise =
         -- @uniformIndex n@ yields a value in @[0..n-1]@, we add 1 to the
         -- argument to account for the possibility of intersecting at the
@@ -827,7 +823,7 @@ genPrefixBlockCount (HonestRecipe (Kcp k) (Scg s) (Delta d) _len) g schedH
     phase1 =
         BV.countActivesInV S.notInverted
       $ C.sliceV
-          (C.UnsafeContains (C.Count 0) $ C.lengthV vH C.- (s + d + k))
+          (C.UnsafeContains (C.Count 0) $ C.lengthV vH C.- (sgen + d + k))
           vH
 
     phase2 = phase1 C.- 1

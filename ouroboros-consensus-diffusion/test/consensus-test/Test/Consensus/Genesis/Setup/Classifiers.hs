@@ -45,8 +45,8 @@ data Classifiers =
     -- intersection. In particular, if sgen = sfor, then the trunk will have at
     -- least k+2.
     allAdversariesKPlus1InForecast :: Bool,
-    -- | There are at least scg slots after the intesection on both the honest
-    -- and the alternative chain
+    -- | There are at least @sgen@ slots after the intesection on both the
+    -- honest and the alternative chain
     --
     -- Knowing if there is a Genesis window after the intersection is important because
     -- otherwise the Genesis node has no chance to advance the immutable tip past
@@ -58,7 +58,7 @@ data Classifiers =
   }
 
 classifiers :: GenesisTest -> Classifiers
-classifiers GenesisTest {gtBlockTree, gtSecurityParam = SecurityParam k, gtGenesisWindow = GenesisWindow scg} =
+classifiers genesisTest =
   Classifiers {
     existsSelectableAdversary,
     allAdversariesSelectable,
@@ -68,7 +68,14 @@ classifiers GenesisTest {gtBlockTree, gtSecurityParam = SecurityParam k, gtGenes
     longerThanGenesisWindow
   }
   where
-    longerThanGenesisWindow = AF.headSlot goodChain >= At (fromIntegral scg)
+    GenesisTest {
+        gtBlockTree
+      , gtSecurityParam = SecurityParam k
+      , gtGenesisWindow = GenesisWindow sgen
+      , gtForecastRange = ForecastRange sfor
+      } = genesisTest
+
+    longerThanGenesisWindow = AF.headSlot goodChain >= At (fromIntegral sgen)
 
     genesisWindowAfterIntersection =
       any fragmentHasGenesis branches
@@ -77,7 +84,7 @@ classifiers GenesisTest {gtBlockTree, gtSecurityParam = SecurityParam k, gtGenes
       let
         frag = btbSuffix btb
         SlotNo intersection = withOrigin 0 id (anchorToSlotNo (anchor frag))
-      in isSelectable btb && slotLength frag > fromIntegral scg && goodTipSlot - intersection > scg
+      in isSelectable btb && slotLength frag > fromIntegral sgen && goodTipSlot - intersection > sgen
 
     existsSelectableAdversary =
       any isSelectable branches
@@ -91,18 +98,14 @@ classifiers GenesisTest {gtBlockTree, gtSecurityParam = SecurityParam k, gtGenes
       all isForecastable branches
 
     isForecastable bt =
-      -- FIXME: We are using `scg` here but what we really mean is `sfor`.
-      -- Distinguish `scg` vs. `sgen` vs. `sfor` and use the latter here.
       let slotNos = map blockSlot $ AF.toOldestFirst $ btbFull bt in
-      all (\(SlotNo prev, SlotNo next) -> next - prev <= scg) (zip slotNos (tail slotNos))
+      all (\(SlotNo prev, SlotNo next) -> next - prev <= sfor) (zip slotNos (tail slotNos))
 
     allAdversariesKPlus1InForecast =
       all hasKPlus1InForecast branches
 
     hasKPlus1InForecast BlockTreeBranch{btbSuffix} =
-      -- FIXME: We are using `scg` here but what we really mean is `sfor`.
-      -- Distinguish `scg` vs. `sgen` vs. `sfor` and use the latter here.
-      let forecastSlot = succWithOrigin (anchorToSlotNo $ anchor btbSuffix) + SlotNo scg
+      let forecastSlot = succWithOrigin (anchorToSlotNo $ anchor btbSuffix) + SlotNo sfor
           forecastBlocks = AF.takeWhileOldest (\b -> blockSlot b < forecastSlot) btbSuffix
        in AF.length forecastBlocks >= fromIntegral k + 1
 

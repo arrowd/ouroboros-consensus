@@ -11,10 +11,10 @@
 module Test.Ouroboros.Consensus.ChainGenerator.Honest (
     -- * Generating
     ChainSchema (ChainSchema)
-  , CheckedHonestRecipe (UnsafeCheckedHonestRecipe, chrScgDensity, chrWin)
+  , CheckedHonestRecipe (UnsafeCheckedHonestRecipe, chrSgenDensity, chrWin)
   , HonestLbl
   , HonestRecipe (HonestRecipe)
-  , NoSuchHonestChainSchema (BadKcp, BadLen)
+  , NoSuchHonestChainSchema (BadKcpSgenSfor, BadLen)
   , SomeCheckedHonestRecipe (SomeCheckedHonestRecipe)
   , SomeHonestChainSchema (SomeHonestChainSchema)
   , checkHonestRecipe
@@ -22,9 +22,9 @@ module Test.Ouroboros.Consensus.ChainGenerator.Honest (
   , genHonestRecipe
   , uniformTheHonestChain
     -- * Testing
-  , HonestChainViolation (BadCount, BadScgWindow, BadLength)
-  , ScgLbl
-  , ScgViolation (ScgViolation, scgvPopCount, scgvWindow)
+  , HonestChainViolation (BadCount, BadSgenWindow, BadLength)
+  , SgenLbl
+  , SgenViolation (SgenViolation, sgenvPopCount, sgenvWindow)
   , checkHonestChain
   , prettyChainSchema
   , prettyWindow
@@ -41,7 +41,8 @@ import qualified System.Random.Stateful as R
 import qualified Test.Ouroboros.Consensus.ChainGenerator.BitVector as BV
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Counting as C
 import           Test.Ouroboros.Consensus.ChainGenerator.Params (Asc,
-                     Delta (Delta), Kcp (Kcp), Len (Len), Scg (Scg), genKSD)
+                     Delta (Delta), Kcp (Kcp), Len (Len), Sfor (Sfor),
+                     Sgen (Sgen), genKSSD)
 import qualified Test.Ouroboros.Consensus.ChainGenerator.Slot as S
 import           Test.Ouroboros.Consensus.ChainGenerator.Slot
                      (E (ActiveSlotE, SlotE), S)
@@ -52,7 +53,7 @@ import           Test.QuickCheck.Extras (sized1)
 -----
 
 -- | The argument of checkHonestRecipe'
-data HonestRecipe = HonestRecipe !Kcp !Scg !Delta !Len
+data HonestRecipe = HonestRecipe !Kcp !Sgen !Sfor !Delta !Len
   deriving (Eq, Read, Show)
 
 -- | The argument of 'uniformTheHonestChain' and the output of 'checkHonestRecipe'
@@ -63,10 +64,10 @@ data HonestRecipe = HonestRecipe !Kcp !Scg !Delta !Len
 -- TODO: Rename to CheckedHonestSchemaSpec
 data CheckedHonestRecipe base hon = UnsafeCheckedHonestRecipe {
     -- | Desired density
-    chrScgDensity :: !(BV.SomeDensityWindow S.NotInverted)
+    chrSgenDensity :: !(BV.SomeDensityWindow S.NotInverted)
   , -- | Window in the @base@ containing sequence where the density should be
     -- ensured
-    chrWin        :: !(C.Contains SlotE base hon)
+    chrWin         :: !(C.Contains SlotE base hon)
   }
   deriving (Eq, Read, Show)
 
@@ -95,11 +96,11 @@ instance Read SomeCheckedHonestRecipe where
             <*> Some.readArg
 
 data NoSuchHonestChainSchema =
-    -- | must have @2 <= 'Kcp' <= 'Scg'@
+    -- | must have @2 <= 'Kcp' <= 'Sgen' <= 'Sfor'@
     --
     -- Chosing @Kcp > 2@ allows adversarial schemas to have at least 1 active
     -- slot and still lose density comparisons and races.
-    BadKcp
+    BadKcpSgenSfor
   |
     -- | 'Len' must be positive
     BadLen
@@ -144,10 +145,10 @@ data NoSuchHonestChainSchema =
 
 genHonestRecipe :: QC.Gen HonestRecipe
 genHonestRecipe = sized1 $ \sz -> do
-    (Kcp k, Scg s, Delta d) <- genKSD
+    (Kcp k, Sgen sgen, Sfor sfor, Delta d) <- genKSSD
     -- See Note [Minimum schema length].
-    l <- (+ (2*s + d + 1)) <$> QC.choose (0, 5 * sz)
-    pure $ HonestRecipe (Kcp k) (Scg s) (Delta d) (Len l)
+    l <- (+ (2*sgen + d + 1)) <$> QC.choose (0, 5 * sz)
+    pure $ HonestRecipe (Kcp k) (Sgen sgen) (Sfor sfor) (Delta d) (Len l)
 
 -- | Checks whether the given 'HonestRecipe' determines a valid input to
 -- 'uniformTheHonestChain'
@@ -155,18 +156,18 @@ checkHonestRecipe :: HonestRecipe -> Exn.Except NoSuchHonestChainSchema SomeChec
 checkHonestRecipe recipe = do
     when (l <= 0) $ Exn.throwError BadLen
 
-    when (k < 2 || s < k) $ Exn.throwError BadKcp
+    when (k < 2 || sgen < k || sfor < sgen) $ Exn.throwError BadKcpSgenSfor
 
     C.withTopWindow (C.Lbl @HonestLbl) l $ \base topWindow -> do
         C.SomeWindow Proxy slots <- pure topWindow
 
         pure $ SomeCheckedHonestRecipe base Proxy UnsafeCheckedHonestRecipe {
-            chrScgDensity = BV.SomeDensityWindow (C.Count k) (C.Count s)
+            chrSgenDensity = BV.SomeDensityWindow (C.Count k) (C.Count sgen)
           ,
             chrWin        = slots
           }
   where
-    HonestRecipe (Kcp k) (Scg s) (Delta _d) (Len l) = recipe
+    HonestRecipe (Kcp k) (Sgen sgen) (Sfor sfor) (Delta _d) (Len l) = recipe
 
 -----
 
@@ -386,7 +387,7 @@ uniformTheHonestChain ::
   -> ChainSchema base hon
 {-# INLINABLE uniformTheHonestChain #-}
 uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
-    BV.SomeDensityWindow (C.Count (toEnum -> numerator)) (C.Count (toEnum -> denominator)) <- pure chrScgDensity
+    BV.SomeDensityWindow (C.Count (toEnum -> numerator)) (C.Count (toEnum -> denominator)) <- pure chrSgenDensity
     let _ = numerator   :: C.Var hon ActiveSlotE
         _ = denominator :: C.Var hon SlotE
 
@@ -403,8 +404,8 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
     -- fill the first window up to @k@
     rtot <- do
         -- NB @withWindow@ truncates if it would reach past @slots@
-        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @ScgLbl) (C.Count 0) (C.toSize denominator)
-        tot <- C.fromWindowVar scg <$> BV.fillInWindow S.notInverted chrScgDensity g (C.sliceMV scg mv)
+        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @SgenLbl) (C.Count 0) (C.toSize denominator)
+        tot <- C.fromWindowVar scg <$> BV.fillInWindow S.notInverted chrSgenDensity g (C.sliceMV scg mv)
 
         firstSlot <- BV.testMV S.notInverted mv (C.Count 0)
         newSTRef $ (if firstSlot then subtract 1 else id) $ (tot :: C.Var hon ActiveSlotE)
@@ -448,7 +449,7 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
     --       sampled from @mbAsc@.
     C.forRange_ (C.windowSize remainingFullWindows) $ \(C.fromWindow remainingFullWindows -> islot) -> do
         -- NB will not be truncated
-        C.SomeWindow Proxy scgSlots <- pure $ C.withWindow sz (C.Lbl @ScgLbl) islot (C.toSize denominator)
+        C.SomeWindow Proxy scgSlots <- pure $ C.withWindow sz (C.Lbl @SgenLbl) islot (C.toSize denominator)
 
         tot <- do
             tot <- readSTRef rtot
@@ -467,7 +468,7 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
     pure mv
   where
     UnsafeCheckedHonestRecipe {
-        chrScgDensity
+        chrSgenDensity
       ,
         chrWin         = slots
       }  = recipe
@@ -478,33 +479,33 @@ uniformTheHonestChain mbAsc recipe g0 = wrap $ C.createV $ do
 
 -----
 
-data ScgViolation hon =
+data SgenViolation hon =
     forall skolem.
-    ScgViolation {
+    SgenViolation {
         -- | How many active slots 'scgvWindow' has
-        scgvPopCount :: !(C.Size (C.Win ScgLbl skolem) ActiveSlotE)
+        sgenvPopCount :: !(C.Size (C.Win SgenLbl skolem) ActiveSlotE)
       ,
         -- | The ChainGrowth window that doesn't have enough active slots
-        scgvWindow   :: !(C.Contains SlotE hon (C.Win ScgLbl skolem))
+        sgenvWindow   :: !(C.Contains SlotE hon (C.Win SgenLbl skolem))
       }
 
-instance Eq (ScgViolation hon) where
-    ScgViolation l1 l2 == ScgViolation r1 r2 =
+instance Eq (SgenViolation hon) where
+    SgenViolation l1 l2 == SgenViolation r1 r2 =
       C.forgetBase l1 == C.forgetBase r1
       &&
       C.forgetWindow l2 == C.forgetWindow r2
 
-instance Show (ScgViolation hon) where
-    showsPrec p (ScgViolation x y) =
+instance Show (SgenViolation hon) where
+    showsPrec p (SgenViolation x y) =
         Some.runShowsPrec p
-      $ Some.showCtor ScgViolation "ScgViolation"
+      $ Some.showCtor SgenViolation "SgenViolation"
             `Some.showArg` x
             `Some.showArg` y
 
-instance Read (ScgViolation hon) where
+instance Read (SgenViolation hon) where
     readPrec =
         Some.runReadPrec
-      $ Some.readCtor ScgViolation "ScgViolation"
+      $ Some.readCtor SgenViolation "SgenViolation"
             <*> Some.readArg
             <*> Some.readArg
 
@@ -512,17 +513,17 @@ data HonestChainViolation hon =
     -- | The schema does not contain a positive number of active slots
     BadCount
   |
-    -- | The schema has some window of 'Scg' slots that contains less than
+    -- | The schema has some window of 'Sgen' slots that contains less than
     -- 'Kcp' active slots, even despite optimistically assuming that all slots
     -- beyond 'Len' are active
-    BadScgWindow !(ScgViolation hon)
+    BadSgenWindow !(SgenViolation hon)
   |
     -- | The schema does not span exactly 'Len' slots
     BadLength !(C.Size hon SlotE)
   deriving (Eq, Read, Show)
 
 -- | A stability window
-data ScgLbl
+data SgenLbl
 
 -- | Check the Praos Chain Growth assumption
 --
@@ -550,23 +551,23 @@ checkHonestChain recipe sched = do
     -- every slot is the first slot of a unique stability window
     C.forRange_ sz $ \i -> do
         -- note that withWindow truncates if the requested slots reach past 'Len'
-        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @ScgLbl) i (C.Count s)
+        C.SomeWindow Proxy scg <- pure $ C.withWindow sz (C.Lbl @SgenLbl) i (C.Count sgen)
 
         let pc = BV.countActivesInV S.notInverted (C.sliceV scg v)
 
         -- generously assume that the slots of this stability window that extend past 'Len' are active
-        let benefitOfTheDoubt = s - C.getCount (C.windowSize scg)
+        let benefitOfTheDoubt = sgen - C.getCount (C.windowSize scg)
 
         -- check the density in the stability window
         when (C.getCount pc + benefitOfTheDoubt < k) $ do
-            Exn.throwError $ BadScgWindow $ ScgViolation {
-                scgvPopCount = pc
+            Exn.throwError $ BadSgenWindow $ SgenViolation {
+                sgenvPopCount = pc
               ,
-                scgvWindow   = scg
+                sgenvWindow   = scg
               }
 
   where
-    HonestRecipe (Kcp k) (Scg s) (Delta _d) (Len l) = recipe
+    HonestRecipe (Kcp k) (Sgen sgen) (Sfor _sfor) (Delta _d) (Len l) = recipe
 
     ChainSchema hon v = sched
 

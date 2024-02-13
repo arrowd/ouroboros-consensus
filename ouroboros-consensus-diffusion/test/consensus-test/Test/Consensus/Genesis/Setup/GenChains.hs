@@ -63,14 +63,14 @@ genHonestChainSchema = do
 genAlternativeChainSchema :: (H.HonestRecipe, H.ChainSchema base hon) -> QC.Gen (Int, [S])
 genAlternativeChainSchema (testRecipeH, arHonest) =
   unsafeMapSuchThatJust $ do
-    let H.HonestRecipe kcp scg delta _len = testRecipeH
+    let H.HonestRecipe kcp sgen sfor delta _len = testRecipeH
 
     (seedPrefix :: QCGen) <- QC.arbitrary
     let arPrefix = genPrefixBlockCount testRecipeH seedPrefix arHonest
 
     let testRecipeA = A.AdversarialRecipe {
       A.arPrefix,
-      A.arParams = (kcp, scg, delta),
+      A.arParams = (kcp, sgen, sfor, delta),
       A.arHonest
     }
 
@@ -108,15 +108,15 @@ genChains genNumForks = do
       -- blocks for the good chain in reversed order
       goodBlocks = mkTestBlocks [] slotsH 0
       slotsH = Vector.toList (getVector vH)
-      HonestRecipe (Kcp kcp) (Scg scg) delta _len = honestRecipe
+      HonestRecipe (Kcp kcp) (Sgen sgen) (Sfor sfor) delta _len = honestRecipe
 
   numForks <- genNumForks
   alternativeChainSchemas <- replicateM (fromIntegral numForks) (genAlternativeChainSchema (honestRecipe, honestChainSchema))
   pure $ GenesisTest {
     gtHonestAsc = asc,
     gtSecurityParam = SecurityParam (fromIntegral kcp),
-    gtGenesisWindow = GenesisWindow (fromIntegral scg),
-    gtForecastRange = ForecastRange (fromIntegral scg), -- REVIEW: Do we want to generate those randomly?
+    gtGenesisWindow = GenesisWindow (fromIntegral sgen),
+    gtForecastRange = ForecastRange (fromIntegral sfor),
     gtDelay = delta,
     gtBlockTree = foldl' (flip BT.addBranch') (BT.mkTrunk goodChain) $ zipWith (genAdversarialFragment goodBlocks) [1..] alternativeChainSchemas
     }
