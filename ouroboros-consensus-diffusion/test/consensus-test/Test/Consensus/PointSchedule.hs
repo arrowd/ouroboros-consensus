@@ -68,7 +68,9 @@ import           Data.Word (Word64)
 import           Ouroboros.Consensus.Block.Abstract (WithOrigin (..), getHeader)
 import           Ouroboros.Consensus.Protocol.Abstract (SecurityParam,
                      maxRollbacks)
-import           Ouroboros.Consensus.Util.Condense (Condense (condense))
+import           Ouroboros.Consensus.Util.Condense (Condense (..),
+                     CondenseList (..), PaddingDirection (..),
+                     condenseListWithPadding, padListWith)
 import           Ouroboros.Network.AnchoredFragment (AnchoredFragment,
                      AnchoredSeq (Empty, (:>)))
 import qualified Ouroboros.Network.AnchoredFragment as AF
@@ -113,6 +115,9 @@ newtype TipPoint =
 instance Condense TipPoint where
   condense (TipPoint tip) = terseTip tip
 
+instance CondenseList TipPoint where
+  condenseList = condenseListWithPadding PadRight
+
 -- | Convert a 'TipPoint' to a 'TestBlock'.
 tipPointBlock :: TipPoint -> Maybe TestBlock
 tipPointBlock (TipPoint TipGenesis) = Nothing
@@ -128,6 +133,9 @@ newtype HeaderPoint =
 instance Condense HeaderPoint where
   condense (HeaderPoint header) = terseWithOrigin terseHeader header
 
+instance CondenseList HeaderPoint where
+  condenseList = condenseListWithPadding PadRight
+
 -- | Convert a 'HeaderPoint' to a 'TestBlock'.
 headerPointBlock :: HeaderPoint -> Maybe TestBlock
 headerPointBlock (HeaderPoint Origin)      = Nothing
@@ -141,6 +149,9 @@ newtype BlockPoint =
 
 instance Condense BlockPoint where
   condense (BlockPoint block) = terseWithOrigin terseBlock block
+
+instance CondenseList BlockPoint where
+  condenseList = condenseListWithPadding PadRight
 
 -- | Convert a 'BlockPoint' to a 'Point'.
 blockPointBlock :: BlockPoint -> Maybe TestBlock
@@ -166,6 +177,18 @@ instance Condense AdvertisedPoints where
     "TP " ++ condense tip ++
     " | HP " ++ condense header ++
     " | BP " ++ condense block
+
+instance CondenseList AdvertisedPoints where
+  condenseList points =
+    zipWith3
+      (\tip header block ->
+        "TP " ++ tip ++
+          " | HP " ++ header ++
+          " | BP " ++ block
+      )
+      (condenseList $ tip <$> points)
+      (condenseList $ header <$> points)
+      (condenseList $ block <$> points)
 
 genesisAdvertisedPoints :: AdvertisedPoints
 genesisAdvertisedPoints =
@@ -194,6 +217,19 @@ instance Condense NodeState where
     NodeOnline points -> condense points
     NodeOffline -> "*chrrrk* <signal lost>"
 
+instance CondenseList NodeState where
+  condenseList states =
+    case partition (== NodeOffline) states of
+      -- all nodes are online
+      ([], states') ->
+        condenseList $ fmap
+          (\case
+            NodeOnline points -> points
+            _ -> error "impossible: all nodes are online"
+          )
+          states'
+      _ -> condense <$> states
+
 -- | A tick is an entry in a 'PointSchedule', containing the peer that is
 -- going to change state.
 data Tick =
@@ -208,8 +244,19 @@ data Tick =
 instance Condense Tick where
   condense Tick {active, duration, number} =
     show number ++ ": " ++ condense active ++ " | " ++ showDT duration
-    where
-      showDT t = printf "%.6f" (realToFrac t :: Double)
+
+instance CondenseList Tick where
+  condenseList ticks =
+    zipWith3
+      (\active duration number ->
+        number ++ ": " ++ active ++ " | " ++ duration
+      )
+      (condenseList $ active <$> ticks)
+      (padListWith PadLeft $ (showDT . duration) <$> ticks)
+      (condenseListWithPadding PadLeft $ number <$> ticks)
+
+showDT :: DiffTime -> String
+showDT t = printf "%.6f" (realToFrac t :: Double)
 
 tickDefault :: PointScheduleConfig -> Word -> Peer NodeState -> Tick
 tickDefault PointScheduleConfig {pscTickDuration} number active =
@@ -234,11 +281,11 @@ data PointSchedule =
   deriving (Eq, Show)
 
 instance Condense PointSchedule where
-  condense (PointSchedule ticks _) = unlines (condense <$> toList ticks)
+  condense (PointSchedule ticks _) = unlines (condenseList $ toList ticks)
 
 prettyPointSchedule :: PointSchedule -> [String]
 prettyPointSchedule PointSchedule{ticks} =
-  "PointSchedule:" : (("  " ++) <$> (condense <$> toList ticks))
+  "PointSchedule:" : (("  " ++) <$> (condenseList $ toList ticks))
 
 -- | Parameters that are significant for components outside of generators, like the peer
 -- simulator.
