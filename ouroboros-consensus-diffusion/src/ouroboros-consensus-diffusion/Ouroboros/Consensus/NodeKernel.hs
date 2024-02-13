@@ -746,10 +746,8 @@ getImmTipSlotNo ::
      , UpdateLedger blk
      )
   => NodeKernel m addrNTN addrNTC blk
-  -> STM m SlotNo
+  -> STM m (WithOrigin SlotNo)
 getImmTipSlotNo kernel = do
     immutableLedger <-
       ledgerState <$> ChainDB.getImmutableLedger (getChainDB kernel)
-    case ledgerTipSlot immutableLedger of
-      Origin -> retry
-      NotOrigin tip -> return tip
+    return (ledgerTipSlot immutableLedger)

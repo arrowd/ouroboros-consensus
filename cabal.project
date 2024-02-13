@@ -35,10 +35,10 @@ import: ./asserts.cabal
 source-repository-package
     type: git
     location: https://github.com/input-output-hk/ouroboros-network/
-    tag: 150b498486596e9386b2e6ef1ae8b2af3b85ad07
+    tag: 85777bf34cbbf204f3245ed058a5d930da13fbfe
     subdir: ouroboros-network
             ouroboros-network-framework
             ouroboros-network-api
             ouroboros-network-testing
             ouroboros-network-protocols
-    --sha256: sha256-6zMnBl08KSPRnwRBNBwIDfei/1YLYd4EwY3bxjQx1KM=
+    --sha256: sha256-0XREg6dLcnTDgK/iy7STcRmsZjSd2sKdaE/sXYV4jo4=
