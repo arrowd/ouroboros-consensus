@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
@@ -19,9 +18,7 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Forker (
   ) where
 
 import           Control.Monad (void)
-import qualified Data.Map.Diff.Strict as Diff
 import           Control.Tracer
-import           Data.Bool (bool)
 import           Data.Functor.Contravariant ((>$<))
 import qualified Data.Map.Strict as Map
 import           Data.Semigroup
@@ -227,20 +224,20 @@ mkForker h forkerKey = Forker {
     }
 
 implForkerReadTables ::
-     (MonadSTM m, HasLedgerTables l, MonadThrow m)
+     (MonadSTM m, HasLedgerTables l)
   => ForkerEnv m l blk
   -> LedgerTables l KeysMK
   -> m (LedgerTables l ValuesMK)
 implForkerReadTables env ks = do
     traceWith (foeTracer env) ForkerReadTablesStart
-    guardUncommitted env $ \chlog -> do
-      let rew = rewindTableKeySets chlog ks
-      unfwd <- readKeySetsWith lvh rew
-      case forwardTableKeySets chlog unfwd of
-        Left _err -> error "impossible!"
-        Right vs  -> do
-          traceWith (foeTracer env) ForkerReadTablesEnd
-          pure vs
+    chlog <- readTVarIO (foeChangelog env)
+    let rew = rewindTableKeySets chlog ks
+    unfwd <- readKeySetsWith lvh rew
+    case forwardTableKeySets chlog unfwd of
+      Left _err -> error "impossible!"
+      Right vs  -> do
+        traceWith (foeTracer env) ForkerReadTablesEnd
+        pure vs
   where
     lvh = foeBackingStoreValueHandle env
 
@@ -374,46 +371,47 @@ implForkerGetLedgerState env = current <$> readTVar (foeChangelog env)
 -- | Obtain statistics for a combination of backing store value handle and
 -- changelog.
 implForkerReadStatistics ::
-     (MonadSTM m, HasLedgerTables l, MonadThrow m)
+     (MonadSTM m, HasLedgerTables l)
   => ForkerEnv m l blk
   -> m (Maybe API.Statistics)
 implForkerReadStatistics env = do
     traceWith (foeTracer env) ForkerReadStatistics
-    guardUncommitted env $ \dblog -> do
-      let seqNo = adcLastFlushedSlot dblog
-      BackingStore.Statistics{sequenceNumber = seqNo', numEntries = n} <- bsvhStat lbsvh
-      if seqNo /= seqNo' then
-        error $ show (seqNo, seqNo')
-      else do
-        let
-          diffs = adcDiffs dblog
+    dblog <- readTVarIO (foeChangelog env)
 
-          nInserts = getSum
-                  $ ltcollapse
-                  $ ltmap (K2 . numInserts . getSeqDiffMK)
-                    diffs
-          nDeletes = getSum
-                  $ ltcollapse
-                  $ ltmap (K2 . numDeletes . getSeqDiffMK)
-                    diffs
-        pure . Just $ API.Statistics {
-            ledgerTableSize = n + nInserts - nDeletes
-          }
+    let seqNo = adcLastFlushedSlot dblog
+    BackingStore.Statistics{sequenceNumber = seqNo', numEntries = n} <- bsvhStat lbsvh
+    if seqNo /= seqNo' then
+      error $ show (seqNo, seqNo')
+    else do
+      let
+        diffs = adcDiffs dblog
+
+        nInserts = getSum
+                $ ltcollapse
+                $ ltmap (K2 . numInserts . getSeqDiffMK)
+                  diffs
+        nDeletes = getSum
+                $ ltcollapse
+                $ ltmap (K2 . numDeletes . getSeqDiffMK)
+                  diffs
+      pure . Just $ API.Statistics {
+          ledgerTableSize = n + nInserts - nDeletes
+        }
   where
     lbsvh = foeBackingStoreValueHandle env
 
 implForkerPush ::
-     (MonadSTM m, GetTip l, HasLedgerTables l, MonadThrow (STM m))
+     (MonadSTM m, GetTip l, HasLedgerTables l)
   => ForkerEnv m l blk
   -> l DiffMK
   -> m ()
 implForkerPush env newState = do
   traceWith (foeTracer env) ForkerPushStart
   atomically $ do
-    guardUncommittedSTM env $ \chlog -> do
-      let chlog' = prune (foeSecurityParam env)
+    chlog <- readTVar (foeChangelog env)
+    let chlog' = prune (foeSecurityParam env)
                  $ extend newState chlog
-      writeTVar (foeChangelog env) chlog'
+    writeTVar (foeChangelog env) chlog'
   traceWith (foeTracer env) ForkerPushEnd
 
 implForkerCloseWith ::
@@ -437,7 +435,7 @@ implForkerDiscard env = do
   traceWith (foeTracer env) ForkerCloseCommitted
 
 implForkerCommit ::
-     (MonadSTM m, GetTip l, HasLedgerTables l, MonadThrow (STM m))
+     (IOLike m, GetTip l, HasLedgerTables l)
   => ForkerEnv m l blk
   -> m ()
 implForkerCommit env = do

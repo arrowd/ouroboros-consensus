@@ -282,19 +282,10 @@ data LedgerDbError blk =
 -- evaluate forks in the chain.
 type Forker :: (Type -> Type) -> LedgerStateKind -> Type -> Type
 data Forker m l blk = Forker {
-    -- | Close the current forker (idempotent).
-    --
-    -- Other functions on forkers should throw a 'ClosedForkError' once the
-    -- forker is closed.
-    --
-    -- Note: always use this functions before the forker is forgotten!
-    -- Otherwise, cleanup of (on-disk) state might not be prompt or guaranteed.
-    forkerClose :: !(m ())
-
     -- * Queries
 
     -- | Read ledger tables from disk.
-  , forkerReadTables :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
+    forkerReadTables :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
     -- | Range-read ledger tables from disk.
   , forkerRangeReadTables :: !(RangeQuery l -> m (LedgerTables l ValuesMK))
     -- | Like 'forkerRangeReadTables', but using the 'QueryBatchSize' that the

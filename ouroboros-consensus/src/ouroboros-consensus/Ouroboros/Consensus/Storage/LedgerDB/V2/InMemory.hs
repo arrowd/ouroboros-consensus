@@ -29,7 +29,7 @@ import           Cardano.Binary as CBOR
 import qualified Codec.CBOR.Read as CBOR
 import qualified Codec.CBOR.Write as CBOR
 import           Codec.Serialise (decode)
-import           Control.Exception (throw)
+--import           Control.Exception (throw)
 import           Control.Monad (unless, void)
 import           Control.Monad.Except (runExceptT)
 import           Control.Tracer
@@ -52,6 +52,7 @@ import           Ouroboros.Consensus.Util.ResourceRegistry
 import           Prelude hiding (read)
 import           System.FS.API
 import           System.FS.API.Types
+import GHC.Stack
 
 {-------------------------------------------------------------------------------
   InMemory implementation of LedgerTablesHandles
@@ -67,8 +68,8 @@ deriving instance NoThunks (LedgerTables l ValuesMK) => NoThunks (LedgerTablesHa
 data InMemoryClosedExn = InMemoryClosedExn
   deriving (Show, Exception)
 
-guardClosed :: LedgerTablesHandleState l -> (LedgerTables l ValuesMK -> a) -> a
-guardClosed LedgerTablesHandleClosed    _ = throw InMemoryClosedExn
+guardClosed :: HasCallStack => LedgerTablesHandleState l -> (LedgerTables l ValuesMK -> a) -> a
+guardClosed LedgerTablesHandleClosed    _ = error $ show InMemoryClosedExn
 guardClosed (LedgerTablesHandleOpen st) f = f st
 
 newInMemoryLedgerTablesHandle ::
@@ -82,8 +83,11 @@ newInMemoryLedgerTablesHandle ::
 newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
   ioref <- newTVarIO (LedgerTablesHandleOpen l)
   pure LedgerTablesHandle {
-      close = atomically $ modifyTVar ioref (const LedgerTablesHandleClosed)
-    , duplicate = doDuplicate ioref
+      close =
+        atomically $ modifyTVar ioref (const LedgerTablesHandleClosed)
+    , duplicate = do
+        hs <- readTVarIO ioref
+        guardClosed hs $ newInMemoryLedgerTablesHandle someFS
     , read = \keys -> do
         hs <- readTVarIO ioref
         guardClosed hs (\st -> pure $ ltliftA2 rawRestrictValues st keys)
@@ -108,10 +112,6 @@ newInMemoryLedgerTablesHandle someFS@(SomeHasFS hasFS) l = do
         hs <- readTVarIO ioref
         guardClosed hs (\(getLedgerTables -> ValuesMK m) -> pure $ Just $ Map.size m)
     }
-  where
-    doDuplicate ioref = do
-      hs <- readTVarIO ioref
-      guardClosed hs $ newInMemoryLedgerTablesHandle someFS
 
 {-------------------------------------------------------------------------------
   Snapshots

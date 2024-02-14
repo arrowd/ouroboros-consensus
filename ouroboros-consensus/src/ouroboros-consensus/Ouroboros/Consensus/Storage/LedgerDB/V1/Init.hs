@@ -259,7 +259,7 @@ implTryFlush env = do
           (flushLedgerDB (ldbChangelog env) (ldbBackingStore env))
         )
 
-implCloseDB :: MonadSTM m => LedgerDBHandle m l blk -> m ()
+implCloseDB :: IOLike m => LedgerDBHandle m l blk -> m ()
 implCloseDB (LDBHandle varState) = do
     mbOpenEnv <- atomically $ readTVar varState >>= \case
       -- Idempotent

@@ -15,7 +15,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Ouroboros.Consensus.Storage.LedgerDB.V2.Common (
     -- * LedgerDBEnv
@@ -63,6 +63,7 @@ import           Ouroboros.Consensus.Util.ResourceRegistry
 import qualified Ouroboros.Network.AnchoredSeq as AS
 import           Prelude hiding (read)
 import           System.FS.API
+import Debug.Trace (trace)
 
 {-------------------------------------------------------------------------------
   The LedgerDBEnv
@@ -240,32 +241,6 @@ forkerExtend newState =
   Forker operations
 -------------------------------------------------------------------------------}
 
-data ForkerUsedAfterCommit = ForkerUsedAfterCommit deriving (Show, Exception)
-
--- | Throw an exception if the forker has been committed before.
-guardUncommitted ::
-     (MonadSTM m, MonadThrow m)
-  => ForkerEnv m l blk
-  -> (ForkerLedgerSeq m l -> m a)
-  -> m a
-guardUncommitted env f = do
-  committed <- readTVarIO (foeWasCommitted env)
-  if committed
-    then throwIO ForkerUsedAfterCommit
-    else f =<< readTVarIO (foeLedgerSeq env)
-
--- | Throw an exception (in STM) if the forker has been committed before.
-guardUncommittedSTM ::
-     (MonadSTM m, MonadThrow (STM m))
-  => ForkerEnv m l blk
-  -> (ForkerLedgerSeq m l -> STM m a)
-  -> STM m a
-guardUncommittedSTM env f = do
-  committed <- readTVar (foeWasCommitted env)
-  if committed
-    then throwSTM ForkerUsedAfterCommit
-    else f =<< readTVar (foeLedgerSeq env)
-
 data ForkerEnv m l blk = ForkerEnv {
     -- | Local version of the LedgerSeq
     foeLedgerSeq          :: !(StrictTVar m (ForkerLedgerSeq m l))
@@ -282,21 +257,13 @@ data ForkerEnv m l blk = ForkerEnv {
 
     -- | Keys here will be released.
   , foeResourcesToRelease :: !(StrictTVar m [ResourceKey m])
-
-    -- | Signal that this forker was committed.
-  , foeWasCommitted       :: !(StrictTVar m Bool)
   }
   deriving Generic
 
 closeForkerEnv :: IOLike m => ForkerEnv m l blk -> m ()
 closeForkerEnv e = do
-  -- mapM_ release =<< readTVarIO (foeResourcesToRelease e)
+  mapM_ release =<< readTVarIO (foeResourcesToRelease e)
   mapM_ unsafeRemoveResource =<< readTVarIO (foeResourcesToRemove e)
-  wasCommitted <- readTVarIO (foeWasCommitted e)
-  traceWith (foeTracer e) $
-    if wasCommitted
-    then ForkerCloseCommitted
-    else ForkerCloseUncommitted
 
 deriving instance ( IOLike m
                   , LedgerSupportsProtocol blk
@@ -358,7 +325,6 @@ newForker h ldbEnv rr st = do
     lseqVar   <- newTVarIO . ForkerLedgerSeq . AS.Empty $ st
     toRemove  <- newTVarIO []
     toRelease <- newTVarIO []
-    committed <- newTVarIO False
     let forkerEnv = ForkerEnv {
         foeLedgerSeq          = lseqVar
       , foeSwitchVar          = ldbSeq ldbEnv
@@ -366,18 +332,19 @@ newForker h ldbEnv rr st = do
       , foeTracer             = tr
       , foeResourcesToRemove  = toRemove
       , foeResourcesToRelease = toRelease
-      , foeWasCommitted       = committed
       }
     atomically $ modifyTVar (ldbForkers ldbEnv) $ Map.insert forkerKey forkerEnv
     pure $ Forker {
-        forkerClose                  = implForkerClose h forkerKey
-      , forkerReadTables             = getForkerEnv1   h forkerKey implForkerReadTables
+        forkerReadTables             = getForkerEnv1   h forkerKey implForkerReadTables
       , forkerRangeReadTables        = getForkerEnv1   h forkerKey implForkerRangeReadTables
       , forkerRangeReadTablesDefault = getForkerEnv1   h forkerKey implForkerRangeReadTablesDefault
       , forkerGetLedgerState         = getForkerEnvSTM h forkerKey implForkerGetLedgerState
       , forkerReadStatistics         = getForkerEnv    h forkerKey implForkerReadStatistics
       , forkerPush                   = getForkerEnv1   h forkerKey (implForkerPush ldbEnv rr)
-      , forkerCommit                 = getForkerEnvSTM h forkerKey implForkerCommit
+      , forkerCommit                 = getForkerEnv    h forkerKey (implForkerCommit h forkerKey)
+      , forkerDiscard                = do
+            traceWith tr ForkerCloseUncommitted
+            implForkerClose h forkerKey
       }
 
 -- | Will release all handles in the 'foeLedgerSeq'.
@@ -396,18 +363,16 @@ implForkerClose (LDBHandle varState) forkerKey = do
     whenJust menv closeForkerEnv
 
 implForkerReadTables ::
-     (MonadSTM m, GetTip l, MonadThrow m)
+     (MonadSTM m, GetTip l)
   => ForkerEnv m l blk
   -> LedgerTables l KeysMK
   -> m (LedgerTables l ValuesMK)
 implForkerReadTables env ks = do
     traceWith (foeTracer env) ForkerReadTablesStart
-    guardUncommitted env
-      (\lseq -> do
-        tbs <- read (tables $ forkerCurrentHandle lseq) ks
-        traceWith (foeTracer env) ForkerReadTablesEnd
-        pure tbs
-      )
+    lseq <- readTVarIO (foeLedgerSeq env)
+    tbs <- read (tables $ forkerCurrentHandle lseq) ks
+    traceWith (foeTracer env) ForkerReadTablesEnd
+    pure tbs
 
 implForkerRangeReadTables ::
      -- (MonadSTM m, GetTip l, HasLedgerTables l)
@@ -444,15 +409,15 @@ implForkerGetLedgerState ::
 implForkerGetLedgerState env = forkerCurrent <$> readTVar (foeLedgerSeq env)
 
 implForkerReadStatistics ::
-     (MonadSTM m, GetTip l, MonadThrow m)
+     (MonadSTM m, GetTip l)
   => ForkerEnv m l blk
   -> m (Maybe Statistics)
 implForkerReadStatistics env = do
   traceWith (foeTracer env) ForkerReadStatistics
-  guardUncommitted env (fmap (fmap Statistics) . tablesSize . tables . forkerCurrentHandle)
+  fmap (fmap Statistics) . tablesSize . tables . forkerCurrentHandle =<< readTVarIO (foeLedgerSeq env)
 
 implForkerPush ::
-     (IOLike m, GetTip l, HasLedgerTables l)
+     (IOLike m, GetTip l, HasLedgerTables l, HasCallStack)
   => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> ForkerEnv m l blk
@@ -460,59 +425,60 @@ implForkerPush ::
   -> m ()
 implForkerPush ldbEnv rr env newState = do
   traceWith (foeTracer env) ForkerPushStart
-  guardUncommitted env $ \lseq -> do
+  lseq <- readTVarIO (foeLedgerSeq env)
+  let (st, tbs) = (forgetLedgerTables newState, ltprj newState)
 
-    let (st, tbs) = (forgetLedgerTables newState, ltprj newState)
+  -- allocate in the given outer registry
+  (kOuter, newtbs) <- allocate rr (const $ duplicate (tables $ forkerCurrentHandle lseq)) close
+  -- allocate in the ldb registry too
+  (kInner, _) <- allocate (ldbRegistry ldbEnv) (const $ pure newtbs) close
 
-    -- allocate in the given outer registry
-    (kOuter, newtbs) <- allocate rr (const $ duplicate (tables $ forkerCurrentHandle lseq)) close
-    -- allocate in the ldb registry too
-    (kInner, _) <- allocate (ldbRegistry ldbEnv) (const $ pure newtbs) close
+  write newtbs tbs
 
-    write newtbs tbs
+  let lseq' = forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
 
-    let lseq' = forkerExtend (TempStateRef (StateRef st kInner newtbs) kOuter) lseq
-
-    atomically $ do
-      writeTVar (foeLedgerSeq env) lseq'
-      -- Unless committed, when closing we should release these resources from the outer registry
-      modifyTVar (foeResourcesToRelease env) (kOuter:)
-      -- Unless committed, when closing we should remove these resources from the inner registry
-      modifyTVar (foeResourcesToRemove env) (kInner:)
-    traceWith (foeTracer env) ForkerPushEnd
+  atomically $ do
+    writeTVar (foeLedgerSeq env) lseq'
+    -- Unless committed, when closing we should release these resources from the outer registry
+    modifyTVar (foeResourcesToRelease env) (kOuter:)
+    -- Unless committed, when closing we should remove these resources from the inner registry
+    modifyTVar (foeResourcesToRemove env) (kInner:)
+  traceWith (foeTracer env) ForkerPushEnd
 
 implForkerCommit ::
-     (MonadSTM m, GetTip l, MonadThrow (STM m))
-  => ForkerEnv m l blk
-  -> STM m ()
-implForkerCommit env = do
-  guardUncommittedSTM env $ \(ForkerLedgerSeq lseq) -> do
-    let intersectionSlot = getTipSlot $ state $ AS.anchor lseq
-    statesToClose <- stateTVar
-      (foeSwitchVar env)
+     (IOLike m, GetTip l)
+  => LedgerDBHandle m l blk
+  -> ForkerKey
+  -> ForkerEnv m l blk
+  -> m ()
+implForkerCommit h key env = do
+  ForkerLedgerSeq lseq <- readTVarIO foeLedgerSeq
+  let intersectionSlot = getTipSlot $ state $ AS.anchor lseq
+  atomically $ do
+    (statesToClose, LedgerSeq statesDiscarded) <- stateTVar
+      foeSwitchVar
       (\(LedgerSeq olddb) -> fromMaybe theImpossible $ do
          (olddb', toClose) <- AS.splitAfterMeasure intersectionSlot (const True) olddb
          newdb <- AS.join (const $ const True) olddb' $ AS.mapPreservingMeasure tsrStateRef lseq
-         pure (toClose, prune (foeSecurityParam env) (LedgerSeq newdb))
+         let (l, s) = prune (foeSecurityParam env) (LedgerSeq newdb)
+         pure ((toClose, l), s)
       )
 
-    -- schedule to release (from the ldb registry) the resources that have been
-    -- discarded
-    writeTVar (foeResourcesToRelease env)
-      . map resourceKey
-      . AS.toOldestFirst
-      $ statesToClose
+    writeTVar foeResourcesToRelease $
+      map resourceKey (AS.toOldestFirst statesToClose) ++ map resourceKey (AS.toOldestFirst statesDiscarded)
+    writeTVar foeResourcesToRemove $ map tsrTempKey (AS.toOldestFirst lseq)
 
-    -- schedule to forget from the outer registry the resources that have been
-    -- transferred
-    writeTVar (foeResourcesToRemove env)
-      . map tsrTempKey
-      . AS.toOldestFirst
-      $ lseq
-
-    writeTVar (foeWasCommitted env) True
-
+  traceWith foeTracer ForkerCloseCommitted
+  implForkerClose h key
   where
+    ForkerEnv {
+        foeLedgerSeq
+      , foeSwitchVar
+      , foeResourcesToRelease
+      , foeResourcesToRemove
+      , foeTracer
+      } = env
+
     theImpossible =
       error $ unwords [ "Critical invariant violation:"
                       , "Forker chain does no longer intersect with selected chain."
@@ -523,7 +489,7 @@ implForkerCommit env = do
 -------------------------------------------------------------------------------}
 
 acquireAtTip ::
-     (IOLike m, GetTip l)
+     (IOLike m, GetTip l, HasCallStack)
   => LedgerDBEnv m l blk
   -> ResourceRegistry m
   -> m (StateRef m l)
@@ -538,6 +504,7 @@ acquireAtPoint ::
      , IsLedger l
      , StandardHash l
      , LedgerSupportsProtocol blk
+     , HasCallStack
      )
   => LedgerDBEnv m l blk
   -> Point blk
@@ -558,6 +525,7 @@ acquireAtFromTip ::
      forall m l blk. (
        IOLike m
      , IsLedger l
+     , HasCallStack
      )
   => LedgerDBEnv m l blk
   -> Word64
@@ -586,7 +554,8 @@ newForkerAtTip ::
   -> ResourceRegistry m
   -> m (Forker m l blk)
 newForkerAtTip h rr = getEnv h $ \ldbEnv -> do
-    acquireAtTip ldbEnv rr >>= newForker h ldbEnv rr
+    forkerKey <- readTVarIO (ldbNextForkerKey ldbEnv)
+    trace ("Going to open a forker at " <> show forkerKey) $ acquireAtTip ldbEnv rr >>= newForker h ldbEnv rr
 
 newForkerAtPoint ::
      ( HeaderHash l ~ HeaderHash blk

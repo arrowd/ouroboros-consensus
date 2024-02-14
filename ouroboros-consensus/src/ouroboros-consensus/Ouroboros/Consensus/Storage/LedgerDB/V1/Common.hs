@@ -13,7 +13,6 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE StandaloneKindSignatures   #-}
 {-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
@@ -33,8 +32,6 @@ module Ouroboros.Consensus.Storage.LedgerDB.V1.Common (
   , getForkerEnv
   , getForkerEnv1
   , getForkerEnvSTM
-  , guardUncommitted
-  , guardUncommittedSTM
     -- * Exposed internals for testing purposes
   , Internals (..)
   , Internals'
@@ -65,7 +62,6 @@ import           Ouroboros.Consensus.Storage.LedgerDB.V1.DbChangelog
 import           Ouroboros.Consensus.Storage.LedgerDB.V1.Lock
 import           Ouroboros.Consensus.Util.CallStack
 import           Ouroboros.Consensus.Util.IOLike
-import qualified Ouroboros.Consensus.Util.MonadSTM.RAWLock as Lock
 import           Ouroboros.Consensus.Util.ResourceRegistry
 import           System.FS.API
 
@@ -204,30 +200,6 @@ getEnvSTM1 (LDBHandle varState) f a = readTVar varState >>= \case
 {-------------------------------------------------------------------------------
   Forkers
 -------------------------------------------------------------------------------}
-
-data ForkerUsedAfterCommit = ForkerUsedAfterCommit deriving (Show, Exception)
-
-guardUncommitted ::
-     (MonadSTM m, MonadThrow m)
-  => ForkerEnv m l blk
-  -> (AnchorlessDbChangelog l -> m a)
-  -> m a
-guardUncommitted env f = do
-  wasCommitted <- readTVarIO (foeWasCommitted env)
-  if wasCommitted
-    then throwIO ForkerUsedAfterCommit
-    else f =<< readTVarIO (foeChangelog env)
-
-guardUncommittedSTM ::
-     (MonadSTM m, MonadThrow (STM m))
-  => ForkerEnv m l blk
-  -> (AnchorlessDbChangelog l -> STM m a)
-  -> STM m a
-guardUncommittedSTM env f = do
-  wasCommitted <- readTVar (foeWasCommitted env)
-  if wasCommitted
-    then throwSTM ForkerUsedAfterCommit
-    else f =<< readTVar (foeChangelog env)
 
 data ForkerEnv m l blk = ForkerEnv {
     -- * Local, consistent view of ledger state

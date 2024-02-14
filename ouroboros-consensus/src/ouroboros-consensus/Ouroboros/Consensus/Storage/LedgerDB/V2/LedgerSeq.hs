@@ -64,19 +64,21 @@ import           Ouroboros.Network.AnchoredSeq hiding (anchor, last, map,
                      rollback)
 import qualified Ouroboros.Network.AnchoredSeq as AS hiding (map)
 import           Prelude hiding (read)
+import GHC.Stack
+import qualified Data.Bifunctor as B
 
 {-------------------------------------------------------------------------------
   LedgerTablesHandles
 -------------------------------------------------------------------------------}
 
 data LedgerTablesHandle m l = LedgerTablesHandle {
-    close       :: !(m ())
-  , duplicate   :: !(m (LedgerTablesHandle m l))
-  , read        :: !(LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
-  , readRange   :: !((Key l, Key l) -> m (LedgerTables l ValuesMK))
-  , write       :: !(LedgerTables l DiffMK -> m ())
-  , writeToDisk :: !(String -> m ())
-  , tablesSize  :: !(m (Maybe Int))
+    close       :: !(HasCallStack => m ())
+  , duplicate   :: !(HasCallStack => m (LedgerTablesHandle m l))
+  , read        :: !(HasCallStack => LedgerTables l KeysMK -> m (LedgerTables l ValuesMK))
+  , readRange   :: !(HasCallStack => (Key l, Key l) -> m (LedgerTables l ValuesMK))
+  , write       :: !(HasCallStack => LedgerTables l DiffMK -> m ())
+  , writeToDisk :: !(HasCallStack => String -> m ())
+  , tablesSize  :: !(HasCallStack => m (Maybe Int))
   }
   deriving NoThunks via OnlyCheckWhnfNamed "LedgerTablesHandle" (LedgerTablesHandle m l)
 
@@ -175,7 +177,7 @@ reapplyThenPush :: (IOLike m, ApplyBlock l blk)
               -> LedgerDbCfg l
               -> blk
               ->    LedgerSeq m l
-              -> m (LedgerSeq m l)
+              -> m (LedgerSeq m l, LedgerSeq m l)
 reapplyThenPush rr cfg ap db =
     (\current' -> prune (ledgerDbCfgSecParam cfg) $ extend current' db) <$>
       reapplyBlock (ledgerDbCfg cfg) ap rr db
@@ -207,16 +209,13 @@ reapplyBlock cfg b rr db = do
 prune :: GetTip l
       => SecurityParam
       -> LedgerSeq m l
-      -> LedgerSeq m l
+      -> (LedgerSeq m l, LedgerSeq m l)
 prune (SecurityParam k) (LedgerSeq ldb) =
-    LedgerSeq ldb'
+    if toEnum nvol <= k
+    then (LedgerSeq $ Empty (AS.anchor ldb), LedgerSeq ldb)
+    else B.bimap LedgerSeq LedgerSeq $ AS.splitAt (nvol - fromEnum k) ldb
   where
     nvol = AS.length ldb
-
-    ldb' =
-      if toEnum nvol <= k
-      then ldb
-      else snd $ AS.splitAt (nvol - fromEnum k) ldb
 
 -- NOTE: we must inline 'prune' otherwise we get unexplained thunks in
 -- 'LedgerSeq' and thus a space leak. Alternatively, we could disable the
@@ -258,7 +257,7 @@ extend newState =
 -- True
 pruneToImmTipOnly :: GetTip l
                   => LedgerSeq m l
-                  -> LedgerSeq m l
+                  -> (LedgerSeq m l, LedgerSeq m l)
 pruneToImmTipOnly = prune (SecurityParam 0)
 
 {-------------------------------------------------------------------------------

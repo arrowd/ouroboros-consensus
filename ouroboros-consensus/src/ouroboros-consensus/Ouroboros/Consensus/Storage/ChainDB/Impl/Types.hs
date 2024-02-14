@@ -87,9 +87,9 @@ import           Ouroboros.Consensus.Storage.ChainDB.API.Types.InvalidBlockPunis
 import           Ouroboros.Consensus.Storage.ImmutableDB (ImmutableDB,
                      ImmutableDbSerialiseConstraints)
 import qualified Ouroboros.Consensus.Storage.ImmutableDB as ImmutableDB
-import           Ouroboros.Consensus.Storage.LedgerDB (Forker', LedgerDB',
+import           Ouroboros.Consensus.Storage.LedgerDB (LedgerDB',
                      LedgerDbSerialiseConstraints, TraceLedgerDBEvent,
-                     TraceReplayEvent, TraceValidateEvent)
+                     TraceValidateEvent)
 import           Ouroboros.Consensus.Storage.Serialisation
 import           Ouroboros.Consensus.Storage.VolatileDB (VolatileDB,
                      VolatileDbSerialiseConstraints)
@@ -237,8 +237,6 @@ data ChainDbEnv m blk = CDB
     -- others functions, just not with itself.
   , cdbTracer          :: !(Tracer m (TraceEvent blk))
   , cdbRegistry        :: !(ResourceRegistry m)
-    -- ^ Resource registry that will be used to (re)start the background
-    -- threads, see 'cdbBgThreads'.
   , cdbGcDelay         :: !DiffTime
     -- ^ How long to wait between copying a block from the VolatileDB to
     -- ImmutableDB and garbage collecting it from the VolatileDB

@@ -66,10 +66,15 @@ mkInitDb args flavArgs getBlock =
         traceMarkerIO "Loaded snapshot"
         pure s
     , closeDb = closeLedgerSeq
-    , initReapplyBlock = reapplyThenPush lgrRegistry
+    , initReapplyBlock = \a b c -> do
+        (LedgerSeq x, y) <- reapplyThenPush lgrRegistry a b c
+        mapM_ (release . resourceKey) (AS.toOldestFirst x)
+        pure y
     , currentTip = ledgerState . current
     , mkLedgerDb = \lseq -> do
-        let dbPrunedToImmDBTip = pruneToImmTipOnly lseq
+        traceMarkerIO "Initialize LedgerDB"
+        let (LedgerSeq rel, dbPrunedToImmDBTip) = pruneToImmTipOnly lseq
+        mapM_ (release . resourceKey) (AS.toOldestFirst rel)
         (varDB, prevApplied) <-
           (,) <$> newTVarIO dbPrunedToImmDBTip <*> newTVarIO Set.empty
         forkers <- newTVarIO Map.empty
