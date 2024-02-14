@@ -19,6 +19,7 @@ import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client
 import qualified Ouroboros.Consensus.Storage.ChainDB.Impl as ChainDB.Impl
 import           Ouroboros.Consensus.Storage.ChainDB.Impl.Types
                      (TraceAddBlockEvent (..))
+import           Ouroboros.Consensus.Util.Condense (condense)
 import           Ouroboros.Consensus.Util.IOLike (IOLike, MonadMonotonicTime,
                      Time (Time), getMonotonicTime)
 import           Test.Consensus.PointSchedule.Peers (PeerId)
@@ -49,7 +50,6 @@ mkCdbTracer tracer =
     trace = traceUnitWith tracer "ChainDB"
 
 mkChainSyncClientTracer ::
-  IOLike m =>
   PeerId ->
   Tracer m String ->
   Tracer m (TraceChainSyncClientEvent TestBlock)
@@ -76,7 +76,6 @@ mkChainSyncClientTracer peerId tracer =
       trace $ "Threw an exception: " ++ show exception
     TraceTermination result ->
       trace $ "Terminated with result: " ++ show result
-    _ -> pure ()
   where
     trace = traceUnitWith tracer ("ChainSyncClient " ++ condense peerId)
 
