@@ -36,13 +36,12 @@ module Ouroboros.Consensus.Util.LeakyBucket (
 import           Data.Ratio ((%))
 import           Data.Time (DiffTime)
 import           Data.Time.Clock (diffTimeToPicoseconds)
-import           Ouroboros.Consensus.Util.IOLike
-                     (ExceptionInLinkedThread (ExceptionInLinkedThread),
-                     MonadAsync (async), MonadCatch (handle),
-                     MonadDelay (threadDelay), MonadFork, MonadMask,
-                     MonadMonotonicTime, MonadSTM, MonadThrow (throwIO),
-                     StrictTVar, Time, atomically, diffTime, getMonotonicTime,
-                     link, readTVar, uncheckedNewTVarM, writeTVar)
+import           Ouroboros.Consensus.Util.IOLike (MonadAsync (withAsync),
+                     MonadCatch (handle), MonadDelay (threadDelay),
+                     MonadFork (throwTo), MonadMask, MonadMonotonicTime,
+                     MonadSTM, MonadThread (ThreadId, myThreadId),
+                     SomeException, StrictTVar, Time, atomically, diffTime,
+                     getMonotonicTime, readTVar, uncheckedNewTVarM, writeTVar)
 import           Prelude hiding (init)
 
 -- | Configuration of a leaky bucket.
@@ -137,9 +136,8 @@ runAgainstBucket ::
   m (Snapshot, a)
 runAgainstBucket config action = do
     bucket <- init config
-    leakThread <- async $ leak bucket
-    handle rethrowUnwrap $ do
-      link leakThread
+    tid <- myThreadId
+    withAsync (leak bucket tid) $ \_ -> do
       result <- action $ Handler {
         fill = (snd <$>) . takeSnapshotFill bucket,
         pause = takeSnapshot bucket >> atomically (writeTVar (paused bucket) True),
@@ -147,9 +145,6 @@ runAgainstBucket config action = do
         }
       snapshot <- takeSnapshot bucket
       pure (snapshot, result)
-  where
-    rethrowUnwrap :: MonadThrow m => ExceptionInLinkedThread -> m (Snapshot, a)
-    rethrowUnwrap (ExceptionInLinkedThread _ e) = throwIO e
 
 -- | Same as 'runAgainstBucket' but only returns a 'Snapshot' of the bucket when
 -- the action terminates.
@@ -170,17 +165,18 @@ init config@Config{capacity} = do
   pure $ Bucket{config, state, paused}
 
 -- | Monadic action that calls 'threadDelay' until the bucket is empty, then
--- returns @()@.
-leak :: (MonadSTM m, MonadDelay m) => Bucket m -> m ()
-leak bucket@Bucket{config=Config{rate, onEmpty}} = do
+-- returns @()@. It receives the 'ThreadId' argument of the action's thread,
+-- which it uses to throw exceptions at it.
+leak :: (MonadSTM m, MonadDelay m, MonadCatch m, MonadFork m) => Bucket m -> ThreadId m -> m ()
+leak bucket@Bucket{config=Config{rate, onEmpty}} actionThreadId = do
   Snapshot{level} <- takeSnapshot bucket
   let timeToWait = secondsRationalToDiffTime (level / rate)
   -- NOTE: It is possible that @timeToWait == 0@ while @level > 0@ when @level@
   -- is so tiny that @level / rate@ rounds down to 0 picoseconds. In that case,
   -- it is safe to assume that it is just zero.
   if level <= 0 || timeToWait == 0
-    then onEmpty
-    else threadDelay timeToWait >> leak bucket
+    then handle (\(e :: SomeException) -> throwTo actionThreadId e) onEmpty
+    else threadDelay timeToWait >> leak bucket actionThreadId
 
 -- | Take a snapshot of the bucket, that is compute its state at the current
 -- time.
