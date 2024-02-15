@@ -54,6 +54,7 @@ module Ouroboros.Consensus.MiniProtocol.ChainSync.Client (
   , Their (..)
     -- * Trace events
   , ChainSyncLoPBucketConfig (..)
+  , ChainSyncLoPBucketEnabledConfig (..)
   , InvalidBlockReason
   , TraceChainSyncClientEvent (..)
   ) where
@@ -95,7 +96,6 @@ import           Ouroboros.Consensus.Util.Assert (assertWithMsg)
 import           Ouroboros.Consensus.Util.EarlyExit (WithEarlyExit, exitEarly)
 import qualified Ouroboros.Consensus.Util.EarlyExit as EarlyExit
 import           Ouroboros.Consensus.Util.IOLike
-import           Ouroboros.Consensus.Util.LeakyBucket (execAgainstBucket)
 import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Consensus.Util.STM (Fingerprint, Watcher (..),
                      WithFingerprint (..), withWatcher)
@@ -135,11 +135,23 @@ data ChainDbView m blk = ChainDbView {
               (HeaderHash blk -> Maybe (InvalidBlockReason blk)))
   }
 
--- | Configuration of the leaky bucketH
-data ChainSyncLoPBucketConfig = ChainSyncLoPBucketConfig {
-    csbcCapacity :: Integer
-  , csbcRate     :: Rational
+-- | Configuration of the leaky bucket when it is enabled.
+data ChainSyncLoPBucketEnabledConfig = ChainSyncLoPBucketEnabledConfig {
+    -- | The capacity of the bucket (think number of tokens).
+    csbcCapacity :: Integer,
+    -- | The rate of the bucket (think tokens per second).
+    csbcRate     :: Rational
   }
+
+-- | Configuration of the leaky bucket.
+data ChainSyncLoPBucketConfig
+  =
+    -- | Fully disable the leaky bucket. The background thread that is used to
+    -- run it will not even be started.
+    ChainSyncLoPBucketDisabled
+  |
+    -- | Enable the leaky bucket.
+    ChainSyncLoPBucketEnabled ChainSyncLoPBucketEnabledConfig
 
 defaultChainDbView ::
      (IOLike m, LedgerSupportsProtocol blk)
@@ -190,7 +202,7 @@ bracketChainSyncClient
         withWatcher
             "ChainSync.Client.rejectInvalidBlocks"
             (invalidBlockWatcher varCandidate)
-      $ execAgainstBucket lopBucketConfig
+      $ execAgainstBucket'
       $ \lopBucket ->
             body varCandidate lopBucket
   where
@@ -206,12 +218,20 @@ bracketChainSyncClient
         invalidBlockRejector
             tracer version getIsInvalidBlock (readTVar varCandidate)
 
-    lopBucketConfig = LeakyBucket.Config {
-      capacity = fromInteger $ csbcCapacity csBucketConfig,
-      rate = csbcRate csBucketConfig,
-      onEmpty = throwIO EmptyBucket,
-      fillOnOverflow = True
-      }
+    -- | Wrapper around 'LeakyBucket.execAgainstBucket' that handles the
+    -- disabled bucket by running the given action with dummy handlers.
+    execAgainstBucket' :: IOLike m => (LeakyBucket.Handler m -> m a) -> m a
+    execAgainstBucket' =
+      case csBucketConfig of
+        ChainSyncLoPBucketDisabled -> \a -> a LeakyBucket.dummyHandler
+        ChainSyncLoPBucketEnabled ChainSyncLoPBucketEnabledConfig {csbcCapacity, csbcRate} ->
+          LeakyBucket.execAgainstBucket $
+            LeakyBucket.Config
+              { capacity = fromInteger $ csbcCapacity,
+                rate = csbcRate,
+                onEmpty = throwIO EmptyBucket,
+                fillOnOverflow = True
+              }
 
 -- Our task: after connecting to an upstream node, try to maintain an
 -- up-to-date header-only fragment representing their chain. We maintain

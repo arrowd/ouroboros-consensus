@@ -62,7 +62,6 @@ import           Data.List (intercalate)
 import qualified Data.Map.Merge.Strict as Map
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (isJust)
-import           Data.Ratio ((%))
 import           Data.Semigroup (Max (Max), getMax)
 import qualified Data.Set as Set
 import           Data.Time (diffUTCTime)
@@ -402,12 +401,8 @@ runChainSync skew securityParam (ClientUpdates clientUpdates)
             -- Note that this tests passes in the exact difference between the
             -- client's and server's clock as the tolerable clock skew.
 
-        -- TODO: a proper way to disable ChainSync bucket
         lopBucketConfig :: ChainSyncLoPBucketConfig
-        lopBucketConfig = ChainSyncLoPBucketConfig {
-          csbcCapacity = 1,
-          csbcRate = 1 % 1000000000
-          }
+        lopBucketConfig = ChainSyncLoPBucketDisabled
 
         client :: StrictTVar m (AnchoredFragment (Header TestBlock))
                -> LeakyBucket.Handler m

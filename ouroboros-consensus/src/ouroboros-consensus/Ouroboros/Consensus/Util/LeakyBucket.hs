@@ -25,6 +25,7 @@ module Ouroboros.Consensus.Util.LeakyBucket (
   , Handler (..)
   , Snapshot (..)
   , diffTimeToSecondsRational
+  , dummyHandler
   , evalAgainstBucket
   , execAgainstBucket
   , runAgainstBucket
@@ -88,6 +89,17 @@ data Handler m = Handler {
   -- ^ Resume the bucket, making it leak again. It does not matter if 'resume'
   -- is called on a running bucket.
   }
+
+-- | Types like a 'Handler' but does nothing, useful to run an action supposed
+-- to be ran against a bucket (and therefore expecting a bucket handler) without
+-- a bucket.
+dummyHandler :: Applicative m => Handler m
+dummyHandler =
+  Handler
+    { fill = const (pure (Overflew False)),
+      pause = pure (),
+      resume = pure ()
+    }
 
 -- | Perform the given action with the bucket paused.
 withPause :: Monad m => Handler m -> m a -> m a

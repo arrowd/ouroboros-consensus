@@ -21,7 +21,9 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Ouroboros.Consensus.Config (TopLevelConfig (..))
 import           Ouroboros.Consensus.Genesis.Governor (updateLoEFragStall)
-import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client (ChainDbView)
+import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client (ChainDbView,
+                     ChainSyncLoPBucketConfig (..),
+                     ChainSyncLoPBucketEnabledConfig (..))
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client as CSClient
 import           Ouroboros.Consensus.Storage.ChainDB.API
 import qualified Ouroboros.Consensus.Storage.ChainDB.API as ChainDB
@@ -52,8 +54,8 @@ import           Test.Consensus.PeerSimulator.StateView
 import           Test.Consensus.PeerSimulator.Trace
 import qualified Test.Consensus.PointSchedule as PointSchedule
 import           Test.Consensus.PointSchedule (GenesisTest (GenesisTest),
-                     NodeState, PeerSchedule, TestFragH, peersStatesRelative,
-                     prettyPeersSchedule)
+                     LoPBucketParams (..), NodeState, PeerSchedule, TestFragH,
+                     peersStatesRelative, prettyPeersSchedule)
 import           Test.Consensus.PointSchedule.Peers (Peer (..), PeerId, Peers,
                      getPeerIds)
 import           Test.Util.ChainDB
@@ -87,6 +89,10 @@ data SchedulerConfig =
     -- Just for the purpose of testing that the selection indeed doesn't
     -- advance.
     , scEnableLoE               :: Bool
+
+    -- | Whether to enable to LoP. The parameters of the LoP come from
+    -- 'GenesisTest'. TODO: Same separation for timeouts.
+    , scEnableLoP               :: Bool
   }
 
 -- | Default scheduler config
@@ -97,7 +103,8 @@ defaultSchedulerConfig =
     scDebug = False,
     scTrace = True,
     scTraceState = False,
-    scEnableLoE = False
+    scEnableLoE = False,
+    scEnableLoP = False
   }
 
 -- | Enable debug tracing during a scheduler test.
@@ -122,6 +129,7 @@ startChainSyncConnectionThread ::
   SharedResources m ->
   ChainSyncResources m ->
   ChainSyncTimeout ->
+  ChainSyncLoPBucketConfig ->
   StateViewTracers m ->
   StrictTVar m (Map PeerId (StrictTVar m TestFragH)) ->
   m ()
@@ -134,12 +142,13 @@ startChainSyncConnectionThread
   SharedResources {srPeerId}
   ChainSyncResources {csrServer}
   chainSyncTimeouts_
+  chainSyncLoPBucketConfig
   tracers
   varCandidates =
     void $
     forkLinkedThread registry ("ChainSyncClient" <> condense srPeerId) $
     bracketSyncWithFetchClient fetchClientRegistry srPeerId $
-    runChainSyncClient tracer cfg chainDbView srPeerId csrServer chainSyncTimeouts_ tracers varCandidates
+    runChainSyncClient tracer cfg chainDbView srPeerId csrServer chainSyncTimeouts_ chainSyncLoPBucketConfig tracers varCandidates
 
 -- | Start the BlockFetch client, using the supplied 'FetchClientRegistry' to
 -- register it for synchronization with the ChainSync client.
@@ -238,7 +247,7 @@ runPointSchedule schedulerConfig genesisTest tracer0 =
     fetchClientRegistry <- newFetchClientRegistry
     let chainDbView = CSClient.defaultChainDbView chainDb
     for_ (psrPeers resources) $ \PeerResources {prShared, prChainSync} -> do
-      startChainSyncConnectionThread registry tracer config chainDbView fetchClientRegistry prShared prChainSync chainSyncTimeouts_ stateViewTracers (psrCandidates resources)
+      startChainSyncConnectionThread registry tracer config chainDbView fetchClientRegistry prShared prChainSync chainSyncTimeouts_ chainSyncLoPBucketConfig stateViewTracers (psrCandidates resources)
       PeerSimulator.BlockFetch.startKeepAliveThread registry fetchClientRegistry (srPeerId prShared)
     for_ (psrPeers resources) $ \PeerResources {prShared, prBlockFetch} ->
       startBlockFetchConnectionThread registry fetchClientRegistry (pure Continue) prShared prBlockFetch
@@ -262,6 +271,7 @@ runPointSchedule schedulerConfig genesisTest tracer0 =
       , gtBlockTree
       , gtSchedule
       , gtChainSyncTimeouts
+      , gtLoPBucketParams = LoPBucketParams { lbpCapacity, lbpRate }
       , gtForecastRange
       } = genesisTest
 
@@ -273,6 +283,11 @@ runPointSchedule schedulerConfig genesisTest tracer0 =
       if scEnableChainSyncTimeouts schedulerConfig
         then gtChainSyncTimeouts
         else chainSyncNoTimeouts
+
+    chainSyncLoPBucketConfig =
+      if scEnableLoP schedulerConfig
+        then ChainSyncLoPBucketEnabled ChainSyncLoPBucketEnabledConfig { csbcCapacity = lbpCapacity, csbcRate = lbpRate }
+        else ChainSyncLoPBucketDisabled
 
 -- | Create a ChainDB and start a BlockRunner that operate on the peers'
 -- candidate fragments.

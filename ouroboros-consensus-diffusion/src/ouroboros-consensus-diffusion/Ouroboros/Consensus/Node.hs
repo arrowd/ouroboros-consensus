@@ -65,7 +65,6 @@ import           Data.Hashable (Hashable)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isNothing)
-import           Data.Ratio ((%))
 import           Data.Typeable (Typeable)
 import           Ouroboros.Consensus.Block
 import           Ouroboros.Consensus.BlockchainTime hiding (getSystemStart)
@@ -848,7 +847,7 @@ stdLowLevelRunNodeArgsIO RunNodeArgs{ rnProtocolInfo
     pure LowLevelRunNodeArgs
       { llrnBfcSalt
       , llrnChainSyncTimeout = fromMaybe stdChainSyncTimeout srnChainSyncTimeout
-      , llrnChainSyncLoPBucketConfig = ChainSyncLoPBucketConfig{csbcCapacity = 5000, csbcRate = 1000 % 2}
+      , llrnChainSyncLoPBucketConfig = ChainSyncLoPBucketDisabled
       , llrnCustomiseHardForkBlockchainTimeArgs = id
       , llrnKeepAliveRng
       , llrnChainDbArgsDefaults =

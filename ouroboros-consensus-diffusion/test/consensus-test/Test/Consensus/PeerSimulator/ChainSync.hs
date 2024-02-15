@@ -10,11 +10,11 @@ import           Control.Monad.Class.MonadTimer.SI (MonadTimer)
 import           Control.Tracer (Tracer, nullTracer, traceWith)
 import           Data.Map.Strict (Map)
 import           Data.Proxy (Proxy (..))
-import           Data.Ratio ((%))
 import           Ouroboros.Consensus.Block (Header, Point)
 import           Ouroboros.Consensus.Config (TopLevelConfig (..))
 import           Ouroboros.Consensus.MiniProtocol.ChainSync.Client (ChainDbView,
-                     Consensus, bracketChainSyncClient, chainSyncClient)
+                     ChainSyncLoPBucketConfig, Consensus,
+                     bracketChainSyncClient, chainSyncClient)
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client as CSClient
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client.InFutureCheck as InFutureCheck
 import           Ouroboros.Consensus.Util.Condense (Condense (..))
@@ -93,6 +93,7 @@ runChainSyncClient ::
   PeerId ->
   ChainSyncServer (Header TestBlock) (Point TestBlock) (Tip TestBlock) m () ->
   ChainSyncTimeout ->
+  ChainSyncLoPBucketConfig ->
   StateViewTracers m ->
   StrictTVar m (Map PeerId (StrictTVar m TestFragH)) ->
   m ()
@@ -103,6 +104,7 @@ runChainSyncClient
   peerId
   server
   chainSyncTimeouts
+  lopBucketConfig
   StateViewTracers {svtChainSyncExceptionsTracer}
   varCandidates
   =
@@ -136,5 +138,3 @@ runChainSyncClient
     ntnVersion :: NodeToNodeVersion
     ntnVersion = maxBound
     trace = traceUnitWith tracer $ "ChainSyncClient " ++ condense peerId
-    -- FIXME: Enable LoP with reasonable parameters.
-    lopBucketConfig = CSClient.ChainSyncLoPBucketConfig{csbcCapacity = 1_000_000_000, csbcRate = 1 % 1_000_000_000}
