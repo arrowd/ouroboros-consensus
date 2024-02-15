@@ -36,6 +36,7 @@ tests = testGroup "Ouroboros.Consensus.Util.LeakyBucket" [
   testProperty "resume too quickly" prop_playWithPauseTooLong,
   testProperty "propagates exceptions" prop_propagateExceptions,
   testProperty "propagates exceptions (IO)" prop_propagateExceptionsIO,
+  testProperty "catch exception" prop_catchException,
   adjustQuickCheckTests (* 10) $ testProperty "random" prop_random
   ]
 
@@ -237,6 +238,15 @@ prop_propagateExceptionsIO =
     evalAgainstBucket config11FillThrow (\_ -> throwIO NoPlumberException)
       `shouldThrow`
     NoPlumberException
+
+-- | One test to show that we can catch the 'EmptyBucket' exception from the
+-- action itself, but that it is not wrapped in 'ExceptionInLinkedThread'.
+prop_catchException :: Property
+prop_catchException =
+  ioSimProperty $
+    execAgainstBucket config11FillThrow (\_ -> try $ threadDelay 1000)
+      `shouldEvaluateTo`
+    Left EmptyBucket
 
 --------------------------------------------------------------------------------
 -- Against a model
