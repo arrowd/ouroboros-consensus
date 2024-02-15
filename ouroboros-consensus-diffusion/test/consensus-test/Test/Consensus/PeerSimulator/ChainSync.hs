@@ -19,8 +19,7 @@ import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client as CSClient
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client.InFutureCheck as InFutureCheck
 import           Ouroboros.Consensus.Util.Condense (Condense (..))
 import           Ouroboros.Consensus.Util.IOLike (Exception (fromException),
-                     ExceptionInLinkedThread (ExceptionInLinkedThread), IOLike,
-                     MonadCatch (try), StrictTVar)
+                     IOLike, MonadCatch (try), StrictTVar)
 import qualified Ouroboros.Consensus.Util.LeakyBucket as LeakyBucket
 import           Ouroboros.Network.Block (Tip)
 import           Ouroboros.Network.Channel (createConnectedChannels)
@@ -129,10 +128,7 @@ runChainSyncClient
             Just ThreadKilled -> trace "Terminated by GDD governor."
             _                 -> pure ()
           case fromException exn of
-            -- REVIEW: Where does it get wrapped in 'ExceptionInLinkedThread'?
-            -- LeakyBucket is supposed to unwrap it, but maybe somewhere else?
-            Just (ExceptionInLinkedThread _ e) | fromException e == Just CSClient.EmptyBucket -> do
-              trace "Terminating because of empty bucket."
+            Just CSClient.EmptyBucket -> trace "Terminating because of empty bucket."
             _ -> pure ()
   where
     ntnVersion :: NodeToNodeVersion

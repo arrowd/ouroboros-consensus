@@ -8,9 +8,8 @@ module Test.Consensus.Genesis.Tests.LoP (tests) where
 
 import           Data.Functor (($>))
 import qualified Ouroboros.Consensus.MiniProtocol.ChainSync.Client as CSClient
-import           Ouroboros.Consensus.Util.IOLike (DiffTime,
-                     ExceptionInLinkedThread (ExceptionInLinkedThread),
-                     Time (Time), fromException)
+import           Ouroboros.Consensus.Util.IOLike (DiffTime, Time (Time),
+                     fromException)
 import qualified Ouroboros.Network.AnchoredFragment as AF
 import           Test.Consensus.BlockTree (btTrunk)
 import           Test.Consensus.Genesis.Setup
@@ -58,10 +57,8 @@ prop_smoke mustTimeout =
         [] -> not mustTimeout
         [ChainSyncException _pid exn] ->
           case fromException exn of
-            -- REVIEW: Where does it get wrapped in 'ExceptionInLinkedThread'?
-            -- LeakyBucket is supposed to unwrap it, but maybe somewhere else?
-            Just (ExceptionInLinkedThread _ e) | fromException e == Just CSClient.EmptyBucket -> mustTimeout
-            _ -> False
+            Just CSClient.EmptyBucket -> mustTimeout
+            _                         -> False
         _ -> False
     )
 
